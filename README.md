@@ -24,13 +24,12 @@ pipeline/normalize.py   raw MGP dump  ->  data/snapshot/snapshot.jsonl.gz
 pipeline/build_web.py   snapshot      ->  data/web/*  (binary artifacts the site loads)
 scripts/mgp_fetch.py    MGP API fetcher, run manually to refresh the data
 web/                    Vite + React + TypeScript + Cytoscape front end
-data/                   snapshot and built artifacts, tracked with Git LFS
+data/                   snapshot and built artifacts, committed directly
 ```
 
 ## Running the site
 
 ```bash
-git lfs pull                 # data/ is stored in Git LFS
 cd web
 npm install
 ln -sfn ../../data/web public/data
@@ -39,6 +38,11 @@ npm run dev
 
 `npm test` runs the engine tests, which load the real artifacts from `data/web` and check
 traversal results against values computed independently in Python.
+
+The data artifacts are committed as ordinary git objects (about 47 MB in total), so a clone
+can run the site with no extra fetch step. They are already gzipped, so git cannot compress
+them further and each refresh adds a full copy to history; if that becomes a problem, move
+`data/**/*.gz` to Git LFS with `git lfs migrate import`.
 
 To deploy to a subpath (e.g. GitHub Pages project sites), build with
 `SITE_BASE=/math-family-tree/ npm run build` and publish `web/dist` with `data/web` copied
