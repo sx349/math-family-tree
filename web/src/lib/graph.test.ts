@@ -141,6 +141,17 @@ describe('neighborhood', () => {
     expect(result.nodes.length).toBe(profile[result.depthReached]);
   });
 
+  it('offers no handles when the requested depth was reached', () => {
+    // Depth 1 is complete at 17 nodes, well inside the budget, so nothing is
+    // hidden that the reader did not hide themselves with the depth control.
+    const result = neighborhood(dataset, dataset.indexOfId(GAUSS), {
+      depth: 1,
+      nodeBudget: 500,
+    });
+    expect(result.budgetLimited).toBe(false);
+    expect(result.overflows).toHaveLength(0);
+  });
+
   it('offers overflow handles for everything it hid', () => {
     const hilbert = dataset.indexOfId(HILBERT);
     const result = neighborhood(dataset, hilbert, { depth: 1, nodeBudget: 20 });

@@ -159,12 +159,17 @@ export function neighborhood(
   }
 
   // ------------------------------------------------------------ overflow
-  // Every admitted node whose neighbours were not all admitted gets a handle,
-  // so the diagram never silently hides part of someone's lineage.
+  // Handles mark what the *budget* cut, not what the requested depth excluded.
+  // A diagram that reached the depth it was asked for is complete, and hanging
+  // "+N" off its outer nodes would only advertise the next generation — which
+  // is what the depth control is for. They appear on the outermost ring, and
+  // only when a ring was actually refused.
   const overflows: OverflowHandle[] = [];
   const pendingExpansion: Array<{ index: number; direction: Direction }> = [];
 
   const collectOverflow = (index: number, direction: Direction): void => {
+    if (!budgetLimited) return;
+    if ((admitted.get(index)?.depth ?? 0) < depthReached) return;
     const neighbours = direction === 'up' ? dataset.advisors(index) : dataset.students(index);
     let hidden = 0;
     for (const neighbour of neighbours) if (!admitted.has(neighbour)) hidden++;
