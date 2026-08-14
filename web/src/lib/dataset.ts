@@ -16,6 +16,8 @@ export const MULTI_DEGREE_FLAG = 2;
 export interface Manifest {
   formatVersion: number;
   builtAt: string;
+  /** When the data was collected, which is what the site shows. */
+  dataDate?: string;
   nodeCount: number;
   edgeCount: number;
   stubCount: number;

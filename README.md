@@ -1,4 +1,4 @@
-# Math Family Tree
+# Mathematics Genealogy Visualizer
 
 A visualisation of advisor–student lineages from the
 [Mathematics Genealogy Project](https://www.genealogy.math.ndsu.nodak.edu/) (MGP).
@@ -17,6 +17,11 @@ The site is fully static. The whole graph is loaded into the browser once (~7 MB
 after which search, neighbourhood expansion and ancestor queries all run locally with no
 server round-trips.
 
+It is set as a printed page — laid ecru paper, green-black ink, Caslon Open Face for the
+wordmark — after the cover of the *Annals of Mathematics*. Light only: paper has no honest
+inversion, and a flipped-token dark mode would read as a different design rather than the
+same one at night.
+
 ## Repository layout
 
 ```
@@ -32,9 +37,11 @@ data/                   snapshot and built artifacts, committed directly
 ```bash
 cd web
 npm install
-ln -sfn ../../data/web public/data
 npm run dev
 ```
+
+That is the whole setup — the data artifacts are committed, and `npm run dev` links
+`data/web` into place for you before starting.
 
 `npm test` runs the engine tests, which load the real artifacts from `data/web` and check
 traversal results against values computed independently in Python.
@@ -44,9 +51,25 @@ can run the site with no extra fetch step. They are already gzipped, so git cann
 them further and each refresh adds a full copy to history; if that becomes a problem, move
 `data/**/*.gz` to Git LFS with `git lfs migrate import`.
 
-To deploy to a subpath (e.g. GitHub Pages project sites), build with
-`SITE_BASE=/math-family-tree/ npm run build` and publish `web/dist` with `data/web` copied
-to `web/dist/data`.
+## Publishing
+
+`.github/workflows/deploy.yml` builds and publishes to GitHub Pages on every push to `main`,
+and can be run by hand from the Actions tab — useful for redeploying after a data refresh
+without a code change.
+
+It needs one setting, once: **Settings → Pages → Source: GitHub Actions**.
+
+The workflow typechecks and runs the tests before building, so a broken commit fails rather
+than being published. It derives the base path from the repository name — `/<repo>/` for a
+project site, `/` for a `*.github.io` one — so nothing needs editing if the repository moves.
+It also copies `index.html` to `404.html`, because Pages serves static files and a deep link
+like `/person/7298` has no file behind it; Pages falls back to `404.html`, and serving the app
+from there lets the router take over, so shared links and hard refreshes work.
+
+Each visitor downloads about 7 MB on first load, cached afterwards. That is well within Pages'
+limits, but it is a real number if the site is shared widely.
+
+To build for a subpath by hand: `SITE_BASE=/math-family-tree/ npm run build`.
 
 ## Refreshing the data
 
@@ -58,10 +81,52 @@ scraping `id.php`, and returns richer records.
 export MGP_EMAIL=you@example.com          # password prompted, or MGP_PASSWORD
 python3 scripts/mgp_fetch.py probe        # confirm the API endpoint shape
 python3 scripts/mgp_fetch.py fetch --max-id 350000
+```
+
+Records come from `/api/v2/MGP/acad?id=N`, which returns the `{"MGP_academic": {...}}`
+shape the normalizer expects. The API also documents `/api/v2/MGP/search` (returns a list of
+ids) and `/api/v2/MGP/siblings`, neither of which the fetch needs.
+
+```bash
 python3 pipeline/normalize.py data/raw/mgp_dump.jsonl
 python3 pipeline/build_web.py
 cd web && npm run build
 ```
+
+### Establishing a baseline
+
+Walk the whole id range. A complete pull is the only version of this dataset that can be
+checked: `edge_direction_disagreements` comes out at 0, because every advisor link is
+declared by both people it connects, and that zero is a real integrity test over the whole
+graph. Find the current ceiling first — ids run well above the number of people, and the
+June 2026 dump already referenced id 346,142.
+
+### Updating an existing snapshot
+
+Pointing `--out` at a file that already holds a previous dump makes the fetcher skip those
+ids and append only what is new. Advisor links are read from both endpoints of each edge, so
+a person added since the last pull brings their own `advised by` with them and the link lands
+even though their advisor's older record never mentions them.
+
+The limit of this is worth being clear about. An edit touching two records that both predate
+the pull — a second advisor added to an old thesis, a link deleted — produces no
+contradiction, because neither record was refetched. It cannot be detected, only outrun by
+keeping the window between updates short.
+
+What can be detected is an old record sitting next to a newly fetched one: if one person
+declares a link and the other does not, the silent party has changed since it was stored.
+`report.json` lists those under `stale_ids`, and refetching them picks up whatever else moved
+on those records:
+
+```bash
+python3 scripts/mgp_fetch.py fetch --refresh-ids data/snapshot/report.json -o data/raw/mgp_dump.jsonl
+python3 pipeline/normalize.py data/raw/mgp_dump.jsonl
+```
+
+Records are last-wins, so an appended fresh copy supersedes the older one, and links it no
+longer declares are dropped rather than kept. Note that on an incremental snapshot
+`edge_direction_disagreements` is expected to be non-zero, so it stops working as an
+integrity check — which is why a baseline should be a full pull.
 
 The fetch is resumable: interrupt it and rerun the same command, and it continues without
 refetching any id. Defaults are 4 workers with a delay between requests. Please do not raise

@@ -58,14 +58,23 @@ except ImportError:
 BASE_URL = "https://mathgenealogy.org:8000"
 API_ROOT = "/api/v2/MGP"
 
-# Single-id endpoint templates to try during `probe`, most likely first.
+# The documented single-record endpoint. It takes the id as a *query parameter*,
+# and the path segment is "acad" rather than "academic".
+DEFAULT_ENDPOINT = f"{API_ROOT}/acad?id={{id}}"
+
+# Tried in order by `probe`, in case MGP changes the shape later.
 ENDPOINT_CANDIDATES = [
-    f"{API_ROOT}/academic/{{id}}",
+    DEFAULT_ENDPOINT,
+    f"{API_ROOT}/acad/{{id}}",
     f"{API_ROOT}/academic?id={{id}}",
     f"{API_ROOT}/id/{{id}}",
-    f"{API_ROOT}/person/{{id}}",
-    f"{API_ROOT}/{{id}}",
 ]
+
+# Other endpoints the API documents, for reference:
+#   /api/v2/MGP/search    family_name, given_name, other_names, school, year,
+#                         thesis, country, msc, format=json|csv
+#                         (json returns a bare list of ids)
+#   /api/v2/MGP/siblings  id, window, format
 
 DEFAULT_WORKERS = 4
 DEFAULT_DELAY = 0.35  # seconds per worker between requests
@@ -184,11 +193,47 @@ def load_done(out_path: Path) -> set[int]:
     return done
 
 
+def as_person_record(payload: Any) -> dict[str, Any] | None:
+    """Return the person record in `payload`, or None if there is not one.
+
+    The API answers a good query with ``{"MGP_academic": {...}}``. What it
+    answers for an id that does not exist is not documented, so anything lacking
+    that shape is treated as "no such person" rather than trusted — and a sample
+    of it is kept in the state file, so an unexpected response shape shows up as
+    something to look at instead of silently turning every id into a miss.
+    """
+    if isinstance(payload, list):
+        payload = payload[0] if payload else None
+    if not isinstance(payload, dict):
+        return None
+    inner = payload.get("MGP_academic")
+    if isinstance(inner, dict) and inner.get("ID") is not None:
+        return payload
+    return None
+
+
 def load_retryable(path: Path) -> set[int]:
     """Ids worth another attempt: ones that errored, not ones that 404'd."""
     if not path.exists():
         sys.exit(f"{path} not found — nothing to retry.")
     return {int(x) for x in json.loads(path.read_text()).get("errors", [])}
+
+
+def load_stale(path: Path) -> set[int]:
+    """Ids whose stored record is known to be out of date.
+
+    `pipeline/normalize.py` writes these to its report: they are the people
+    whose own record fails to declare an advisor link that the other party
+    declares, which is what a record that has changed since it was fetched looks
+    like. Refetching just these reconciles an incremental pull with MGP without
+    another pass over the whole database.
+    """
+    if not path.exists():
+        sys.exit(f"{path} not found — run pipeline/normalize.py first.")
+    report = json.loads(path.read_text())
+    if "stale_ids" not in report:
+        sys.exit(f"{path} has no 'stale_ids' — regenerate it with the current normalize.py.")
+    return {int(x) for x in report["stale_ids"]}
 
 
 def chunked(values: list[int], size: int) -> Iterable[list[int]]:
@@ -204,10 +249,12 @@ def command_probe(args: argparse.Namespace, auth: Auth) -> int:
         url = f"{BASE_URL}{template.format(id=args.probe_id)}"
         status, payload = fetcher.get(url, attempts=2)
         shape = ""
-        if status == 200 and payload is not None:
-            sample = payload[0] if isinstance(payload, list) and payload else payload
-            shape = f"  keys={list(sample)[:6]}" if isinstance(sample, dict) else f"  {type(payload).__name__}"
+        if as_person_record(payload) is not None:
+            person = as_person_record(payload)["MGP_academic"]
+            shape = f"  -> {person.get('family_name')}, {person.get('given_name')}"
             working.append(template)
+        elif status == 200 and payload is not None:
+            shape = f"  (200 but no person record: {str(payload)[:60]})"
         print(f"  {status or 'ERR':>4}  {template}{shape}")
 
     if not working:
@@ -225,11 +272,18 @@ def command_fetch(args: argparse.Namespace, auth: Auth) -> int:
     out_path: Path = args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    done = load_done(out_path)
-    targets = sorted(load_retryable(args.retry_errors)) if args.retry_errors else list(
-        range(args.min_id, args.max_id + 1)
-    )
-    todo = [i for i in targets if i not in done]
+    if args.refresh_ids:
+        # A refresh deliberately refetches ids the output file already holds;
+        # normalize.py takes the last record for a person, so the fresh copy
+        # supersedes the stale one when appended.
+        todo = sorted(load_stale(args.refresh_ids))
+        done = set()
+    else:
+        done = load_done(out_path)
+        targets = sorted(load_retryable(args.retry_errors)) if args.retry_errors else list(
+            range(args.min_id, args.max_id + 1)
+        )
+        todo = [i for i in targets if i not in done]
 
     print(
         f"endpoint : {args.endpoint}\n"
@@ -248,12 +302,21 @@ def command_fetch(args: argparse.Namespace, auth: Auth) -> int:
     counts = {"ok": 0, "missing": 0, "error": 0}
     missing: list[int] = []
     errors: list[int] = []
+    unexpected: list[dict[str, Any]] = []
     started = time.time()
     processed = 0
 
     def save_state() -> None:
         args.state.write_text(
-            json.dumps({"missing": missing, "errors": errors, "counts": counts}, indent=2),
+            json.dumps(
+                {
+                    "missing": missing,
+                    "errors": errors,
+                    "counts": counts,
+                    "unexpected_samples": unexpected[:5],
+                },
+                indent=2,
+            ),
             encoding="utf-8",
         )
 
@@ -265,13 +328,15 @@ def command_fetch(args: argparse.Namespace, auth: Auth) -> int:
                 for batch in chunked(todo, CHECKPOINT_EVERY * 4):
                     for mgp_id, status, payload in pool.map(fetcher.fetch_id, batch):
                         processed += 1
-                        if status == 200 and payload:
-                            record = payload[0] if isinstance(payload, list) and payload else payload
+                        record = as_person_record(payload) if status == 200 else None
+                        if record is not None:
                             out.write(json.dumps(record, ensure_ascii=False) + "\n")
                             counts["ok"] += 1
-                        elif status == 404 or (status == 200 and not payload):
+                        elif status in (200, 404):
                             counts["missing"] += 1
                             missing.append(mgp_id)
+                            if status == 200 and payload and len(unexpected) < 5:
+                                unexpected.append({"id": mgp_id, "body": str(payload)[:300]})
                         else:
                             counts["error"] += 1
                             errors.append(mgp_id)
@@ -294,6 +359,17 @@ def command_fetch(args: argparse.Namespace, auth: Auth) -> int:
         return 130
 
     save_state()
+    # MGP ids are densely populated, so a run that finds almost nobody means the
+    # endpoint or the response shape is wrong — not that the database is empty.
+    if processed >= 100 and counts["ok"] < processed * 0.5:
+        print(
+            f"\nWARNING: only {counts['ok']:,} of {processed:,} ids returned a person record.\n"
+            "That usually means the endpoint is wrong or the API answers in a shape this\n"
+            f"script does not recognise. Check 'unexpected_samples' in {args.state}, and\n"
+            "rerun `probe` to confirm the endpoint.",
+            file=sys.stderr,
+        )
+
     print(
         f"\nDone in {(time.time() - started) / 3600:.2f}h: "
         f"{counts['ok']:,} fetched, {counts['missing']:,} absent, {counts['error']:,} failed.\n"
@@ -314,7 +390,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--endpoint", default=ENDPOINT_CANDIDATES[0], help="path template containing {id}")
+    parser.add_argument("--endpoint", default=DEFAULT_ENDPOINT, help="path template containing {id}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     probe = sub.add_parser("probe", help="find the working endpoint shape")
@@ -328,6 +404,12 @@ def main() -> int:
     fetch.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
     fetch.add_argument("--delay", type=float, default=DEFAULT_DELAY)
     fetch.add_argument("--retry-errors", type=Path, help="refetch only the ids that errored in this state file")
+    fetch.add_argument(
+        "--refresh-ids",
+        type=Path,
+        metavar="REPORT",
+        help="refetch the stale_ids listed in a normalize.py report.json, ignoring what is already fetched",
+    )
 
     args = parser.parse_args()
     auth = Auth(

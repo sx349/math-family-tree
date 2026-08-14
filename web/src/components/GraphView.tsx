@@ -134,22 +134,24 @@ function readPalette(): Record<string, string> {
   const style = getComputedStyle(document.documentElement);
   const read = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
   return {
-    root: read('--root', '#a8452a'),
-    ancestor: read('--ancestor', '#3d6b8e'),
-    descendant: read('--descendant', '#4b7d55'),
-    relative: read('--muted', '#6f6a62'),
-    target: read('--root', '#a8452a'),
-    // Distinct from the red of the selected people, and consistent with
-    // advisors being blue on the person page.
-    lca: read('--ancestor', '#3d6b8e'),
-    stub: read('--stub', '#9a938a'),
-    accent: read('--accent', '#7c4a2d'),
-    accent_soft: read('--accent-soft', '#f2e8e0'),
-    surface: read('--surface', '#ffffff'),
-    text: read('--text', '#23201c'),
-    border: read('--border', '#e3ded6'),
-    muted: read('--muted', '#6f6a62'),
+    paper: read('--paper', '#ebe7db'),
+    ink: read('--ink', '#262d28'),
+    inkSoft: read('--ink-soft', '#515850'),
+    inkFaint: read('--ink-faint', '#7d817a'),
+    hair: read('--hair', '#c6c0b1'),
+    oxblood: read('--oxblood', '#7c3a2c'),
   };
+}
+
+/**
+ * One ink for structure, one oxblood for the people the reader asked about.
+ * Everything else is distinguished by stroke weight and line style — the
+ * register of a printed plate rather than of a colour-coded chart.
+ */
+function strokeFor(kind: string, palette: Record<string, string>): string {
+  if (kind === 'root' || kind === 'target') return palette.oxblood;
+  if (kind === 'stub') return palette.inkFaint;
+  return palette.ink;
 }
 
 export function GraphView({
@@ -234,13 +236,14 @@ export function GraphView({
           // external labels make it pack nodes until the text overlaps.
           selector: 'node',
           style: {
-            shape: 'round-rectangle',
-            'background-color': palette.surface,
-            'border-width': 2,
-            'border-color': (element) => palette[element.data('kind') as string] ?? palette.relative,
+            shape: 'rectangle',
+            'background-color': palette.paper,
+            'background-opacity': 1,
+            'border-width': 1,
+            'border-color': (element) => strokeFor(element.data('kind') as string, palette),
             label: 'data(label)',
-            color: palette.text,
-            'font-family': 'system-ui, sans-serif',
+            color: palette.ink,
+            'font-family': "Charter, 'Bitstream Charter', 'Sitka Text', Cambria, Georgia, serif",
             'font-size': 11,
             'text-valign': 'center',
             'text-halign': 'center',
@@ -256,45 +259,46 @@ export function GraphView({
           },
         },
         {
-          // The people the reader actually asked about are filled, so they stand
-          // out from the context drawn around them.
-          selector: 'node[kind = "root"], node[kind = "target"], node[kind = "lca"]',
-          style: {
-            'background-color': (element) => palette[element.data('kind') as string] ?? palette.root,
-            color: palette.surface,
-            'font-weight': 'bold',
-            'font-size': 12,
-            height: 24,
-          },
+          // The people the reader asked about are ruled in oxblood; the ancestor
+          // that answers the question is ruled heavier in the same ink as the
+          // rest of the drawing. Weight and colour do separate jobs.
+          selector: 'node[kind = "root"], node[kind = "target"]',
+          style: { 'border-width': 1.6, color: palette.oxblood, 'font-weight': 'bold', height: 24 },
+        },
+        {
+          selector: 'node[kind = "lca"]',
+          style: { 'border-width': 2.6, 'font-weight': 'bold', height: 24 },
         },
         {
           // Stubs are people MGP references but whose record we do not have, so
           // they are drawn dashed to signal "name only, nothing behind it".
           selector: 'node[kind = "stub"]',
-          style: { 'border-style': 'dashed', 'border-color': palette.stub, color: palette.muted },
+          style: { 'border-style': 'dashed', color: palette.inkFaint },
         },
         {
           selector: 'node[kind = "overflow"]',
           style: {
-            shape: 'round-rectangle',
-            'background-color': palette.accent_soft ?? palette.surface,
-            'border-color': palette.accent,
+            shape: 'rectangle',
+            'background-color': palette.paper,
+            'border-color': palette.inkFaint,
             'border-style': 'dotted',
+            'border-width': 1,
             height: 14,
             padding: '4px',
-            color: palette.accent,
+            color: palette.inkSoft,
             'font-size': 9,
           },
         },
         {
           selector: 'edge',
           style: {
-            width: 1.2,
-            'line-color': palette.border,
-            'target-arrow-color': palette.border,
+            width: 0.8,
+            'line-color': palette.inkSoft,
+            'target-arrow-color': palette.inkSoft,
             'target-arrow-shape': 'triangle',
-            'arrow-scale': 0.7,
+            'arrow-scale': 0.6,
             'curve-style': 'bezier',
+            opacity: 0.75,
           },
         },
         {
@@ -303,7 +307,7 @@ export function GraphView({
         },
         {
           selector: 'node:selected',
-          style: { 'border-color': palette.root, 'border-width': 3 },
+          style: { 'border-color': palette.oxblood, 'border-width': 2.4 },
         },
       ],
       layout: {
@@ -364,19 +368,15 @@ export function GraphView({
   };
 
   return (
-    <div className="graph-shell">
-      <div className="graph-canvas" ref={container} />
+    <div className="plate-frame">
+      <div className="plate-canvas" ref={container} />
       {nodes.length > 0 && (
-        <div className="graph-tools">
-          <button className="button" type="button" onClick={fitAll}>
-            Fit all
-          </button>
-          <button className="button" type="button" onClick={recenter}>
-            Recentre
-          </button>
+        <div className="plate-tools">
+          <button className="button" type="button" onClick={fitAll}>Fit all</button>
+          <button className="button" type="button" onClick={recenter}>Recentre</button>
         </div>
       )}
-      {nodes.length === 0 && emptyMessage && <div className="graph-empty">{emptyMessage}</div>}
+      {nodes.length === 0 && emptyMessage && <div className="plate-empty">{emptyMessage}</div>}
     </div>
   );
 }
