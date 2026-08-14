@@ -64,7 +64,13 @@ export interface Neighborhood {
   budgetLimited: boolean;
 }
 
-export const DEFAULT_NODE_BUDGET = 150;
+/**
+ * Chosen from the data rather than picked: the largest depth-1 neighbourhood in
+ * the snapshot is 184 people, so at 200 no one's default view is ever
+ * truncated, and beyond depth 1 the depth control governs. At 150 exactly one
+ * person's opening diagram came up short without any way to tell.
+ */
+export const DEFAULT_NODE_BUDGET = 200;
 export const DEFAULT_EXPANSION_BUDGET = 50;
 export const MAX_DEPTH = 5;
 

@@ -12,8 +12,6 @@ import {
   neighborhood,
 } from '../lib/neighborhood';
 
-const BUDGET_CHOICES = [75, 150, 300, 600];
-
 export function PersonPage() {
   const dataset = useDataset();
   const navigate = useNavigate();
@@ -21,7 +19,6 @@ export function PersonPage() {
   const index = dataset.indexOfId(Number(id));
 
   const [depth, setDepth] = useState(1);
-  const [budget, setBudget] = useState(DEFAULT_NODE_BUDGET);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<PersonDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(true);
@@ -59,11 +56,11 @@ export function PersonPage() {
         ? null
         : neighborhood(dataset, index, {
             depth,
-            nodeBudget: budget,
+            nodeBudget: DEFAULT_NODE_BUDGET,
             expanded,
             expansionBudget: DEFAULT_EXPANSION_BUDGET,
           }),
-    [dataset, index, depth, budget, expanded],
+    [dataset, index, depth, expanded],
   );
 
   if (index < 0) {
@@ -177,38 +174,17 @@ export function PersonPage() {
           </span>
         </div>
 
-        <div className="group">
-          <label htmlFor="budget">Max nodes</label>
-          <select
-            id="budget"
-            value={budget}
-            style={{ width: 'auto' }}
-            onChange={(event) => setBudget(Number(event.target.value))}
-          >
-            {BUDGET_CHOICES.map((choice) => (
-              <option key={choice} value={choice}>
-                {choice}
-              </option>
-            ))}
-          </select>
-        </div>
-
         {expanded.size > 0 && (
           <button className="button" type="button" onClick={() => setExpanded(new Set())}>
             Collapse expansions
           </button>
         )}
-
-        <span className="muted small">
-          Showing {view?.nodes.length.toLocaleString()} people
-        </span>
       </div>
 
       {view?.budgetLimited && (
         <div className="notice warn">
-          Stopped at depth <strong>{view.depthReached}</strong> of the {depth} requested: the next
-          generation would add {view.nextRingSize.toLocaleString()} more people, over the{' '}
-          {budget}-node limit.
+          Stopped at depth <strong>{view.depthReached}</strong> of the {depth} requested: the
+          next generation would add {view.nextRingSize.toLocaleString()} more people.
         </div>
       )}
 
