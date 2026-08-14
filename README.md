@@ -70,6 +70,28 @@ python3 pipeline/build_web.py
 cd web && npm run build
 ```
 
+### Incremental refresh
+
+Pointing `--out` at a file that already holds a previous dump makes the fetcher skip those
+ids and append only what is new, turning a ~12 hour full pull into ~2 hours. Advisor links
+are read from both endpoints of each edge, so a person added since the last pull brings their
+own `advised by` with them and the link lands even though their advisor's older record never
+mentions them.
+
+What an incremental pull cannot see is an edit to two records that both predate it — a second
+advisor added to an old thesis, or a link deleted. The normalizer detects the first case: when
+one person's record declares a link and the other's does not, the party that failed to declare
+it has gone stale, and `report.json` lists them under `stale_ids`. Refetching just those
+reconciles the snapshot:
+
+```bash
+python3 scripts/mgp_fetch.py fetch --refresh-ids data/snapshot/report.json -o data/raw/mgp_dump.jsonl
+python3 pipeline/normalize.py data/raw/mgp_dump.jsonl        # disagreements should now be 0
+```
+
+Records are last-wins, so an appended fresh copy supersedes the older one, and the links it
+no longer declares are dropped rather than kept.
+
 The fetch is resumable: interrupt it and rerun the same command, and it continues without
 refetching any id. Defaults are 4 workers with a delay between requests. Please do not raise
 those much — MGP is a small volunteer-run service.

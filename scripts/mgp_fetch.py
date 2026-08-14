@@ -219,6 +219,23 @@ def load_retryable(path: Path) -> set[int]:
     return {int(x) for x in json.loads(path.read_text()).get("errors", [])}
 
 
+def load_stale(path: Path) -> set[int]:
+    """Ids whose stored record is known to be out of date.
+
+    `pipeline/normalize.py` writes these to its report: they are the people
+    whose own record fails to declare an advisor link that the other party
+    declares, which is what a record that has changed since it was fetched looks
+    like. Refetching just these reconciles an incremental pull with MGP without
+    another pass over the whole database.
+    """
+    if not path.exists():
+        sys.exit(f"{path} not found — run pipeline/normalize.py first.")
+    report = json.loads(path.read_text())
+    if "stale_ids" not in report:
+        sys.exit(f"{path} has no 'stale_ids' — regenerate it with the current normalize.py.")
+    return {int(x) for x in report["stale_ids"]}
+
+
 def chunked(values: list[int], size: int) -> Iterable[list[int]]:
     for start in range(0, len(values), size):
         yield values[start:start + size]
@@ -255,11 +272,18 @@ def command_fetch(args: argparse.Namespace, auth: Auth) -> int:
     out_path: Path = args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    done = load_done(out_path)
-    targets = sorted(load_retryable(args.retry_errors)) if args.retry_errors else list(
-        range(args.min_id, args.max_id + 1)
-    )
-    todo = [i for i in targets if i not in done]
+    if args.refresh_ids:
+        # A refresh deliberately refetches ids the output file already holds;
+        # normalize.py takes the last record for a person, so the fresh copy
+        # supersedes the stale one when appended.
+        todo = sorted(load_stale(args.refresh_ids))
+        done = set()
+    else:
+        done = load_done(out_path)
+        targets = sorted(load_retryable(args.retry_errors)) if args.retry_errors else list(
+            range(args.min_id, args.max_id + 1)
+        )
+        todo = [i for i in targets if i not in done]
 
     print(
         f"endpoint : {args.endpoint}\n"
@@ -380,6 +404,12 @@ def main() -> int:
     fetch.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
     fetch.add_argument("--delay", type=float, default=DEFAULT_DELAY)
     fetch.add_argument("--retry-errors", type=Path, help="refetch only the ids that errored in this state file")
+    fetch.add_argument(
+        "--refresh-ids",
+        type=Path,
+        metavar="REPORT",
+        help="refetch the stale_ids listed in a normalize.py report.json, ignoring what is already fetched",
+    )
 
     args = parser.parse_args()
     auth = Auth(

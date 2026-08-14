@@ -137,8 +137,13 @@ def normalize(raw_path: Path, out_dir: Path) -> dict[str, Any]:
     people: dict[int, dict[str, Any]] = {}
     # Cross-referenced names, kept so missing people can become stub nodes.
     referenced_names: dict[int, str] = {}
-    edges_down: set[tuple[int, int]] = set()  # from `advisees`
-    edges_up: set[tuple[int, int]] = set()  # from `advised by`
+
+    # Edges are kept per *declaring* person rather than in one global set, so
+    # that re-reading someone's record replaces what they declare instead of
+    # merging with it. That is what makes an incremental refresh able to drop a
+    # link MGP has since deleted, not just add ones it has gained.
+    declared_advisors: dict[int, set[int]] = defaultdict(set)
+    declared_students: dict[int, set[int]] = defaultdict(set)
 
     stats = Counter()
     malformed: list[str] = []
@@ -156,8 +161,11 @@ def normalize(raw_path: Path, out_dir: Path) -> dict[str, Any]:
             stats["sentinel_records_dropped"] += 1
             continue
         if person_id in people:
-            stats["duplicate_ids"] += 1
-            continue
+            # A later record for the same person is a refresh: it wins outright,
+            # and its declarations replace the earlier ones.
+            stats["records_superseded"] += 1
+            declared_advisors.pop(person_id, None)
+            declared_students.pop(person_id, None)
 
         student_data = record.get("student_data") or {}
         degrees = []
@@ -176,7 +184,7 @@ def normalize(raw_path: Path, out_dir: Path) -> dict[str, Any]:
                     stats["self_loops_dropped"] += 1
                     continue
                 advisor_ids.append(advisor)
-                edges_up.add((advisor, person_id))
+                declared_advisors[person_id].add(advisor)
                 referenced_names.setdefault(advisor, clean(advisor_name))
             degrees.append(
                 {
@@ -202,7 +210,7 @@ def normalize(raw_path: Path, out_dir: Path) -> dict[str, Any]:
             if student == person_id and DROP_SELF_LOOPS:
                 stats["self_loops_dropped"] += 1
                 continue
-            edges_down.add((person_id, student))
+            declared_students[person_id].add(student)
             if len(advisee) > 1:
                 referenced_names.setdefault(student, clean(advisee[1]))
 
@@ -216,12 +224,26 @@ def normalize(raw_path: Path, out_dir: Path) -> dict[str, Any]:
             "degrees": degrees,
         }
 
+    edges_up = {(advisor, pid) for pid, advisors in declared_advisors.items() for advisor in advisors}
+    edges_down = {(pid, student) for pid, students in declared_students.items() for student in students}
+
     # --- integrity: do the two edge directions agree where both ends exist? ---
+    # A disagreement means one person's record knows about a link and the other
+    # person's record does not. In a single complete dump that should never
+    # happen. After an incremental refresh it happens exactly where an older
+    # record has gone stale, which makes it a precise list of who to refetch.
     both_present = lambda edges: {e for e in edges if e[0] in people and e[1] in people}
     up_known, down_known = both_present(edges_up), both_present(edges_down)
     disagreements = sorted((up_known ^ down_known))
     stats["edges_only_in_advised_by"] = len(up_known - down_known)
     stats["edges_only_in_advisees"] = len(down_known - up_known)
+
+    # The stale party is whichever side failed to declare the link.
+    stale_ids: set[int] = set()
+    for advisor, student in up_known - down_known:
+        stale_ids.add(advisor)  # the student named them; their own record did not
+    for advisor, student in down_known - up_known:
+        stale_ids.add(student)  # the advisor named them; their own record did not
 
     edges = edges_up | edges_down
 
@@ -273,6 +295,8 @@ def normalize(raw_path: Path, out_dir: Path) -> dict[str, Any]:
         "cycle_samples": cycles[:10],
         "edge_direction_disagreements": len(disagreements),
         "edge_disagreement_samples": disagreements[:10],
+        # Feed straight back into: mgp_fetch.py fetch --refresh-ids report.json
+        "stale_ids": sorted(stale_ids),
         "counters": dict(stats),
         "malformed_samples": malformed[:10],
     }

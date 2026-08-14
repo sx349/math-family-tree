@@ -14,6 +14,7 @@
   "cycle_samples": [],
   "edge_direction_disagreements": 0,
   "edge_disagreement_samples": [],
+  "stale_ids": [],
   "counters": {
     "unknown_advisor_refs_dropped": 25543,
     "self_loops_dropped": 8,
