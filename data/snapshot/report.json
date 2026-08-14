@@ -1,0 +1,25 @@
+{
+  "source_file": "mgp_data_20260622.json",
+  "people_total": 332527,
+  "people_from_source": 318653,
+  "people_stub": 13874,
+  "edges": 376552,
+  "roots_no_advisor": 24968,
+  "leaves_no_student": 252076,
+  "id_min": 1,
+  "id_max": 346142,
+  "max_advisors": 6,
+  "max_students": 181,
+  "cycles_found": 0,
+  "cycle_samples": [],
+  "edge_direction_disagreements": 0,
+  "edge_disagreement_samples": [],
+  "counters": {
+    "unknown_advisor_refs_dropped": 25543,
+    "self_loops_dropped": 8,
+    "edges_only_in_advised_by": 0,
+    "edges_only_in_advisees": 0,
+    "stub_nodes_created": 13874
+  },
+  "malformed_samples": []
+}

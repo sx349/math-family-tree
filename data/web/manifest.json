@@ -1,0 +1,24 @@
+{
+  "formatVersion": 1,
+  "builtAt": "2026-08-14T13:52:15Z",
+  "nodeCount": 332527,
+  "edgeCount": 376552,
+  "stubCount": 13874,
+  "shardBits": 10,
+  "shardCount": 325,
+  "files": {
+    "graph.bin.gz": 1840443,
+    "names.bin.gz": 3056079,
+    "order.bin.gz": 980377,
+    "fold-exceptions.json.gz": 277187,
+    "meta.bin.gz": 1049043,
+    "dicts.json.gz": 40964
+  },
+  "coreBytes": 7244093,
+  "detailBytes": 15586861,
+  "snapshot": {
+    "peopleFromSource": 318653,
+    "cyclesFound": 0,
+    "sourceFile": "mgp_data_20260622.json"
+  }
+}

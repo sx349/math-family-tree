@@ -1,0 +1,24 @@
+# Raw MGP dumps — large, regenerable, never committed
+data/raw/*
+!data/raw/.gitkeep
+
+# Fetcher state / credentials
+*.token
+.env
+.env.local
+mgp_token.txt
+
+# Node
+node_modules/
+web/dist/
+web/public/data/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store

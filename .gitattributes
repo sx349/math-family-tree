@@ -1,0 +1,6 @@
+# Built data artifacts and normalized snapshots are stored via Git LFS.
+data/snapshot/*.jsonl.gz filter=lfs diff=lfs merge=lfs -text
+data/web/**/*.gz filter=lfs diff=lfs merge=lfs -text
+data/snapshot/*.gz !text !filter !merge !diff
+data/web/*.gz !text !filter !merge !diff
+data/web/detail/*.gz !text !filter !merge !diff
