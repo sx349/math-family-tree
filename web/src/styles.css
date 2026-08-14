@@ -172,6 +172,11 @@ input[type='range']::-moz-range-thumb {
   width: 9px; height: 13px; background: var(--ink); border: 0; border-radius: 0;
 }
 input[type='range']:focus-visible { outline-offset: 1px; }
+input[type='range']:disabled { cursor: not-allowed; }
+input[type='range']:disabled::-webkit-slider-thumb { background: var(--hair); }
+input[type='range']:disabled::-moz-range-thumb { background: var(--hair); }
+.controls .group:has(input:disabled) label,
+.controls .group:has(input:disabled) strong { color: var(--ink-faint); }
 input::placeholder { color: var(--ink-faint); }
 label {
   display: block; font-variant-caps: all-small-caps; letter-spacing: 0.08em;

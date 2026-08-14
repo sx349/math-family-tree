@@ -30,6 +30,13 @@ export interface NeighborhoodOptions {
   descendants: number;
   /** Descendant generations are admitted whole only while the total fits this. */
   nodeBudget: number;
+  /**
+   * Rounds of climbing on top of the walks above. Each round adds the advisors
+   * of *every* node already shown, which is a different reach from raising
+   * `ancestors`: that only ever walks up from the root, so it never picks up
+   * the other advisors of someone's students.
+   */
+  climb?: number;
   /** Overflow handles the reader has opened, as `${nodeIndex}:${direction}`. */
   expanded?: ReadonlySet<string>;
   /** Ceiling on how many nodes a single overflow handle may add. */
@@ -63,6 +70,10 @@ export interface Neighborhood {
   nextRingSize: number;
   /** True when the budget, not the requested depth, ended the expansion. */
   budgetLimited: boolean;
+  /** Climb rounds actually applied. */
+  climbed: number;
+  /** Nodes the next climb round would have added, when the budget refused it. */
+  climbRefused: number;
 }
 
 /**
@@ -133,6 +144,32 @@ export function neighborhood(
   const up = walk((index) => dataset.advisors(index), wantUp, 'ancestor', Number.MAX_SAFE_INTEGER);
   const down = walk((index) => dataset.students(index), wantDown, 'descendant', options.nodeBudget);
 
+  // Climbing lifts the whole diagram a generation at a time rather than
+  // extending one walk, so it reaches people the sliders cannot: the other
+  // advisors of your students, and of their students.
+  let climbed = 0;
+  let climbRefused = 0;
+  for (let round = 1; round <= (options.climb ?? 0); round++) {
+    const ring = new Set<number>();
+    for (const index of admitted.keys()) {
+      for (const advisor of dataset.advisors(index)) {
+        if (!admitted.has(advisor)) ring.add(advisor);
+      }
+    }
+    if (ring.size === 0) break;
+    if (admitted.size + ring.size > options.nodeBudget) {
+      climbRefused = ring.size;
+      break;
+    }
+    for (const index of ring) {
+      // `depth` counts rounds here rather than generations from the root; it is
+      // used only for ordering and for the descendant frontier check, neither
+      // of which looks at climbed nodes.
+      admitted.set(index, { index, depth: round, relation: 'ancestor' });
+    }
+    climbed = round;
+  }
+
   // ------------------------------------------------------------ overflow
   // Handles mark what the budget cut, never what the requested depth excluded:
   // a diagram that reached the depth it was asked for is complete, and hanging
@@ -195,6 +232,8 @@ export function neighborhood(
     requestedDescendants: wantDown,
     nextRingSize: down.refused,
     budgetLimited: down.refused > 0,
+    climbed,
+    climbRefused,
   };
 }
 

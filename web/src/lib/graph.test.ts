@@ -211,6 +211,42 @@ describe('neighborhood', () => {
     expect(leftover?.hidden).toBe(dataset.students(hilbert).length - 10);
   });
 
+  it('climbs from every node, reaching people the sliders cannot', () => {
+    // A student's *other* advisor is unreachable by walking up from the root,
+    // since that route would have to go down first. Climbing finds them.
+    const deng = dataset.indexOfId(DENG);
+    const base = { ancestors: 6, descendants: 1, nodeBudget: 500 };
+    const walked = new Set(
+      neighborhood(dataset, deng, base).nodes.map((n) => n.index),
+    );
+    const climbed = new Set(
+      neighborhood(dataset, deng, { ...base, climb: 1 }).nodes.map((n) => n.index),
+    );
+
+    // Everything the walk found is still there, and the climb strictly adds.
+    for (const index of walked) expect(climbed.has(index)).toBe(true);
+    expect(climbed.size).toBeGreaterThan(walked.size);
+
+    // Specifically, the advisors of people the walk had reached.
+    const added = [...climbed].filter((i) => !walked.has(i));
+    for (const index of added) {
+      const advises = [...dataset.students(index)].some((s) => climbed.has(s));
+      expect(advises).toBe(true);
+    }
+  });
+
+  it('refuses a climb round that would break the budget', () => {
+    const hilbert = dataset.indexOfId(HILBERT);
+    const result = neighborhood(dataset, hilbert, {
+      ancestors: 0,
+      descendants: 1,
+      climb: 5,
+      nodeBudget: 100,
+    });
+    expect(result.climbRefused).toBeGreaterThan(0);
+    expect(result.nodes.length).toBeLessThanOrEqual(100);
+  });
+
   it('draws non-tree edges between admitted nodes', () => {
     const result = neighborhood(dataset, dataset.indexOfId(HILBERT), {
       ancestors: 2,

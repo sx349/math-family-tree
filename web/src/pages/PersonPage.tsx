@@ -21,6 +21,10 @@ export function PersonPage() {
 
   const [ancestors, setAncestors] = useState(1);
   const [descendants, setDescendants] = useState(1);
+  // Climbing accumulates on top of whatever the sliders produced, so the
+  // sliders are locked while it is in effect — moving one would silently
+  // rebuild the base the climbs were applied to.
+  const [climb, setClimb] = useState(0);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<PersonDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(true);
@@ -31,6 +35,7 @@ export function PersonPage() {
     setExpanded(new Set());
     setAncestors(1);
     setDescendants(1);
+    setClimb(0);
   }, [index]);
 
   useEffect(() => {
@@ -64,11 +69,12 @@ export function PersonPage() {
         : neighborhood(dataset, index, {
             ancestors,
             descendants,
+            climb,
             nodeBudget: DEFAULT_NODE_BUDGET,
             expanded,
             expansionBudget: DEFAULT_EXPANSION_BUDGET,
           }),
-    [dataset, index, ancestors, descendants, expanded],
+    [dataset, index, ancestors, descendants, climb, expanded],
   );
 
   if (index < 0) {
@@ -171,7 +177,7 @@ export function PersonPage() {
           <label htmlFor="ancestors">Advisors</label>
           <input
             id="ancestors" type="range" min={0} max={MAX_ANCESTORS} value={ancestors}
-            style={{ width: 110 }}
+            style={{ width: 110 }} disabled={climb > 0}
             onChange={(event) => setAncestors(Number(event.target.value))}
           />
           <strong>{ancestors}</strong>
@@ -184,7 +190,7 @@ export function PersonPage() {
           <label htmlFor="descendants">Students</label>
           <input
             id="descendants" type="range" min={0} max={MAX_DESCENDANTS} value={descendants}
-            style={{ width: 110 }}
+            style={{ width: 110 }} disabled={climb > 0}
             onChange={(event) => setDescendants(Number(event.target.value))}
           />
           <strong>{descendants}</strong>
@@ -193,12 +199,31 @@ export function PersonPage() {
           </span>
         </div>
 
-        {expanded.size > 0 && (
-          <button className="button" type="button" onClick={() => setExpanded(new Set())}>
-            Collapse expansions
+        <button
+          className="button"
+          type="button"
+          disabled={view?.climbRefused ? view.climbRefused > 0 : false}
+          onClick={() => setClimb((rounds) => rounds + 1)}
+        >
+          Up one generation
+        </button>
+
+        {(climb > 0 || expanded.size > 0) && (
+          <button
+            className="button quiet"
+            type="button"
+            onClick={() => { setClimb(0); setExpanded(new Set()); }}
+          >
+            Reset
           </button>
         )}
       </div>
+
+      {view && view.climbRefused > 0 && (
+        <div className="notice warn">
+          Another generation up would add {view.climbRefused.toLocaleString()} more people.
+        </div>
+      )}
 
       {view?.budgetLimited && (
         <div className="notice warn">
