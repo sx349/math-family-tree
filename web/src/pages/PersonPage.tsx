@@ -7,8 +7,9 @@ import type { PersonDetail } from '../lib/dataset';
 import {
   DEFAULT_EXPANSION_BUDGET,
   DEFAULT_NODE_BUDGET,
-  MAX_DEPTH,
-  depthProfile,
+  MAX_ANCESTORS,
+  MAX_DESCENDANTS,
+  directionProfile,
   neighborhood,
 } from '../lib/neighborhood';
 
@@ -18,7 +19,8 @@ export function PersonPage() {
   const { id } = useParams<{ id: string }>();
   const index = dataset.indexOfId(Number(id));
 
-  const [depth, setDepth] = useState(1);
+  const [ancestors, setAncestors] = useState(1);
+  const [descendants, setDescendants] = useState(1);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<PersonDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(true);
@@ -27,7 +29,8 @@ export function PersonPage() {
   // across a navigation would expand the wrong node.
   useEffect(() => {
     setExpanded(new Set());
-    setDepth(1);
+    setAncestors(1);
+    setDescendants(1);
   }, [index]);
 
   useEffect(() => {
@@ -45,8 +48,12 @@ export function PersonPage() {
     };
   }, [dataset, index]);
 
-  const profile = useMemo(
-    () => (index < 0 ? [] : depthProfile(dataset, index, MAX_DEPTH)),
+  const upProfile = useMemo(
+    () => (index < 0 ? [] : directionProfile(dataset, index, 'up', MAX_ANCESTORS)),
+    [dataset, index],
+  );
+  const downProfile = useMemo(
+    () => (index < 0 ? [] : directionProfile(dataset, index, 'down', MAX_DESCENDANTS)),
     [dataset, index],
   );
 
@@ -55,12 +62,13 @@ export function PersonPage() {
       index < 0
         ? null
         : neighborhood(dataset, index, {
-            depth,
+            ancestors,
+            descendants,
             nodeBudget: DEFAULT_NODE_BUDGET,
             expanded,
             expansionBudget: DEFAULT_EXPANSION_BUDGET,
           }),
-    [dataset, index, depth, expanded],
+    [dataset, index, ancestors, descendants, expanded],
   );
 
   if (index < 0) {
@@ -157,20 +165,31 @@ export function PersonPage() {
       <h2>Genealogy</h2>
 
       <div className="controls">
+        {/* Two directions, two controls, with different ranges because they are
+            different quantities: going up is bounded, going down is not. */}
         <div className="group">
-          <label htmlFor="depth">Depth</label>
+          <label htmlFor="ancestors">Advisors</label>
           <input
-            id="depth"
-            type="range"
-            min={1}
-            max={MAX_DEPTH}
-            value={depth}
-            style={{ width: 120 }}
-            onChange={(event) => setDepth(Number(event.target.value))}
+            id="ancestors" type="range" min={0} max={MAX_ANCESTORS} value={ancestors}
+            style={{ width: 110 }}
+            onChange={(event) => setAncestors(Number(event.target.value))}
           />
-          <strong>{depth}</strong>
-          <span className="muted small">
-            {profile[depth] !== undefined && `· ${profile[depth].toLocaleString()} within reach`}
+          <strong>{ancestors}</strong>
+          <span className="faint small num">
+            {upProfile[ancestors] !== undefined && `· ${upProfile[ancestors].toLocaleString()}`}
+          </span>
+        </div>
+
+        <div className="group">
+          <label htmlFor="descendants">Students</label>
+          <input
+            id="descendants" type="range" min={0} max={MAX_DESCENDANTS} value={descendants}
+            style={{ width: 110 }}
+            onChange={(event) => setDescendants(Number(event.target.value))}
+          />
+          <strong>{descendants}</strong>
+          <span className="faint small num">
+            {downProfile[descendants] !== undefined && `· ${downProfile[descendants].toLocaleString()}`}
           </span>
         </div>
 
@@ -183,8 +202,10 @@ export function PersonPage() {
 
       {view?.budgetLimited && (
         <div className="notice warn">
-          Stopped at depth <strong>{view.depthReached}</strong> of the {depth} requested: the
-          next generation would add {view.nextRingSize.toLocaleString()} more people.
+          Stopped at <strong>{view.descendantsReached}</strong>{' '}
+          {view.descendantsReached === 1 ? 'generation' : 'generations'} of students of the{' '}
+          {view.requestedDescendants} requested: the next would add{' '}
+          {view.nextRingSize.toLocaleString()} more people.
         </div>
       )}
 

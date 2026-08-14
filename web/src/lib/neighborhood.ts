@@ -1,19 +1,22 @@
 /**
  * Neighbourhood expansion around one mathematician.
  *
- * "Depth" is a radius in the undirected advisor graph, so depth 1 is exactly a
- * person's advisors and students, depth 2 adds grand-advisors, grand-students,
- * academic siblings and co-advisors, and so on.
+ * Two independent directions, each counted in generations: ancestors are your
+ * advisor, their advisor, and so on; descendants are your students, their
+ * students, and so on. Paths are *pure* — a route never turns around — so
+ * nothing appears that the reader cannot predict from the two numbers. An
+ * undirected radius, or separate caps on a mixed path, both let a route go up
+ * twice and down once to arrive at a first cousin, which nobody can anticipate
+ * from a control reading "2 up, 1 down".
  *
- * That radius cannot be used on its own.  Measured on the real data, David
- * Hilbert has 82 nodes at depth 1, 539 at depth 2, 2,756 at depth 3 and 10,812
- * at depth 4 — unreadable as a diagram and slow to lay out.  So expansion is
- * governed by a node budget: rings are admitted whole while they fit, and the
- * first ring that would overflow is left out entirely and summarised as "+N
- * more" handles on the nodes it would have hung from.  The result is that a
- * requested depth of 5 may resolve to an effective depth of 2 for Hilbert and a
- * full 5 for someone with a sparser lineage, without the user having to know in
- * advance which they are looking at.
+ * The two directions are not comparable quantities and must not share a
+ * control. Measured on the snapshot, Hilbert has 2 / 6 / 12 / 19 / 30 ancestors
+ * at depths 1-5 against 79 / 454 / 2,249 / 8,239 / 20,940 descendants. Across a
+ * random sample, ancestors at depth 20 have a median of 114 and a maximum of
+ * 296: going up is always cheap, going down explodes at once. So ancestors are
+ * admitted in full and only descendants are rationed by the node budget — whole
+ * generations at a time, since half a generation would show an arbitrary subset
+ * of someone's students as though it were all of them.
  */
 
 import type { Dataset } from './dataset';
@@ -21,14 +24,13 @@ import type { Dataset } from './dataset';
 export type Direction = 'up' | 'down';
 
 export interface NeighborhoodOptions {
-  depth: number;
-  /** Rings are admitted whole only while the total stays within this. */
+  /** Generations of advisors to include. */
+  ancestors: number;
+  /** Generations of students to include. */
+  descendants: number;
+  /** Descendant generations are admitted whole only while the total fits this. */
   nodeBudget: number;
-  /** Cap on parent-steps along any path; defaults to `depth`. */
-  maxUp?: number;
-  /** Cap on child-steps along any path; defaults to `depth`. */
-  maxDown?: number;
-  /** Overflow handles the user has opened, as `${nodeIndex}:${direction}`. */
+  /** Overflow handles the reader has opened, as `${nodeIndex}:${direction}`. */
   expanded?: ReadonlySet<string>;
   /** Ceiling on how many nodes a single overflow handle may add. */
   expansionBudget?: number;
@@ -36,10 +38,9 @@ export interface NeighborhoodOptions {
 
 export interface NeighborhoodNode {
   index: number;
-  /** Hops from the root in the undirected graph. */
+  /** Generations from the root, in whichever direction this node lies. */
   depth: number;
-  /** Whether the shortest route to this node went up, down, or both. */
-  relation: 'root' | 'ancestor' | 'descendant' | 'relative';
+  relation: 'root' | 'ancestor' | 'descendant';
 }
 
 export interface OverflowHandle {
@@ -55,10 +56,10 @@ export interface Neighborhood {
   /** Advisor -> student, for every edge between included nodes. */
   edges: Array<[number, number]>;
   overflows: OverflowHandle[];
-  /** Depth actually reached before the budget stopped expansion. */
-  depthReached: number;
-  requestedDepth: number;
-  /** Nodes the next ring would have added, for "depth N would show X". */
+  ancestorsReached: number;
+  descendantsReached: number;
+  requestedDescendants: number;
+  /** Nodes the next descendant generation would have added. */
   nextRingSize: number;
   /** True when the budget, not the requested depth, ended the expansion. */
   budgetLimited: boolean;
@@ -67,158 +68,116 @@ export interface Neighborhood {
 /**
  * Chosen from the data rather than picked: the largest depth-1 neighbourhood in
  * the snapshot is 184 people, so at 200 no one's default view is ever
- * truncated, and beyond depth 1 the depth control governs. At 150 exactly one
- * person's opening diagram came up short without any way to tell.
+ * truncated, and past that the depth controls govern.
  */
 export const DEFAULT_NODE_BUDGET = 200;
 export const DEFAULT_EXPANSION_BUDGET = 50;
-export const MAX_DEPTH = 5;
+
+/** Going up is cheap enough that the ceiling can be generous. */
+export const MAX_ANCESTORS = 12;
+/** Going down is not. */
+export const MAX_DESCENDANTS = 5;
 
 export function overflowKey(source: number, direction: Direction): string {
   return `${source}:${direction}`;
 }
 
-/**
- * Expand the neighbourhood of `root`.
- *
- * Paths are tracked as (node, up-steps used); down-steps are implied by the hop
- * count, which keeps the separate up/down caps exact without the cost of a full
- * Pareto frontier per node.
- */
 export function neighborhood(
   dataset: Dataset,
   root: number,
   options: NeighborhoodOptions,
 ): Neighborhood {
-  const depth = Math.max(0, Math.min(options.depth, MAX_DEPTH));
-  const maxUp = options.maxUp ?? depth;
-  const maxDown = options.maxDown ?? depth;
+  const wantUp = Math.max(0, Math.min(options.ancestors, MAX_ANCESTORS));
+  const wantDown = Math.max(0, Math.min(options.descendants, MAX_DESCENDANTS));
   const expanded = options.expanded ?? new Set<string>();
   const expansionBudget = options.expansionBudget ?? DEFAULT_EXPANSION_BUDGET;
 
-  // For each admitted node: the set of up-step counts it has been reached with,
-  // as a bitmask. A node is worth revisiting only via a path that used a
-  // different number of up-steps, since that may unlock further movement.
-  const seenUpMasks = new Map<number, number>();
-  const admitted = new Map<number, NeighborhoodNode>();
+  const admitted = new Map<number, NeighborhoodNode>([
+    [root, { index: root, depth: 0, relation: 'root' }],
+  ]);
 
-  const relationOf = (up: number, down: number): NeighborhoodNode['relation'] => {
-    if (up === 0 && down === 0) return 'root';
-    if (down === 0) return 'ancestor';
-    if (up === 0) return 'descendant';
-    return 'relative';
+  /**
+   * Walk one direction a generation at a time, reporting how far it got and,
+   * if a generation was refused, how large that generation was.
+   */
+  const walk = (
+    step: (index: number) => Uint32Array,
+    limit: number,
+    relation: 'ancestor' | 'descendant',
+    budget: number,
+  ): { reached: number; refused: number } => {
+    let frontier = [root];
+    let reached = 0;
+
+    for (let generation = 1; generation <= limit && frontier.length > 0; generation++) {
+      const ring = new Set<number>();
+      for (const index of frontier) {
+        for (const neighbour of step(index)) {
+          if (!admitted.has(neighbour)) ring.add(neighbour);
+        }
+      }
+      if (ring.size === 0) break;
+      if (admitted.size + ring.size > budget) return { reached, refused: ring.size };
+
+      for (const index of ring) {
+        admitted.set(index, { index, depth: generation, relation });
+      }
+      reached = generation;
+      frontier = [...ring];
+    }
+    return { reached, refused: 0 };
   };
 
-  admitted.set(root, { index: root, depth: 0, relation: 'root' });
-  seenUpMasks.set(root, 1);
-
-  let frontier: Array<{ index: number; up: number }> = [{ index: root, up: 0 }];
-  let depthReached = 0;
-  let nextRingSize = 0;
-  let budgetLimited = false;
-
-  for (let hop = 1; hop <= depth && frontier.length > 0; hop++) {
-    // Candidates reached at this hop, each with the fewest up-steps found.
-    const ring = new Map<number, number>();
-
-    const reach = (neighbour: number, upSteps: number): void => {
-      if (upSteps > maxUp || hop - upSteps > maxDown) return;
-      if ((seenUpMasks.get(neighbour) ?? 0) & (1 << upSteps)) return;
-      const best = ring.get(neighbour);
-      if (best === undefined || upSteps < best) ring.set(neighbour, upSteps);
-    };
-
-    for (const { index, up } of frontier) {
-      for (const advisor of dataset.advisors(index)) reach(advisor, up + 1);
-      for (const student of dataset.students(index)) reach(student, up);
-    }
-
-    // Nodes already on the diagram are not new arrivals, but reaching one by a
-    // route that spent fewer up-steps can unlock moves the first route could
-    // not afford, so they re-enter the frontier without counting against the
-    // budget. The up-step bitmask bounds how often that can happen.
-    const arrivals: Array<{ index: number; up: number }> = [];
-    const newcomers = new Map<number, number>();
-    for (const [index, up] of ring) {
-      if (admitted.has(index)) arrivals.push({ index, up });
-      else newcomers.set(index, up);
-    }
-
-    // The budget is checked per ring rather than per node: admitting half a
-    // generation would produce a diagram that misrepresents the data by showing
-    // an arbitrary subset of someone's students as if it were all of them.
-    if (newcomers.size > 0 && admitted.size + newcomers.size > options.nodeBudget) {
-      nextRingSize = newcomers.size;
-      budgetLimited = true;
-      break;
-    }
-
-    for (const [index, up] of newcomers) {
-      admitted.set(index, { index, depth: hop, relation: relationOf(up, hop - up) });
-      arrivals.push({ index, up });
-    }
-    for (const { index, up } of arrivals) {
-      seenUpMasks.set(index, (seenUpMasks.get(index) ?? 0) | (1 << up));
-    }
-    if (newcomers.size > 0) depthReached = hop;
-    frontier = arrivals;
-  }
+  // Ancestors first and in full: they are bounded, and they are the half of the
+  // diagram a reader is most likely to have set a deep number for.
+  const up = walk((index) => dataset.advisors(index), wantUp, 'ancestor', Number.MAX_SAFE_INTEGER);
+  const down = walk((index) => dataset.students(index), wantDown, 'descendant', options.nodeBudget);
 
   // ------------------------------------------------------------ overflow
-  // Handles mark what the *budget* cut, not what the requested depth excluded.
-  // A diagram that reached the depth it was asked for is complete, and hanging
-  // "+N" off its outer nodes would only advertise the next generation — which
-  // is what the depth control is for. They appear on the outermost ring, and
-  // only when a ring was actually refused.
+  // Handles mark what the budget cut, never what the requested depth excluded:
+  // a diagram that reached the depth it was asked for is complete, and hanging
+  // "+N" off it would only advertise the next generation, which is what the
+  // controls are for.
   const overflows: OverflowHandle[] = [];
-  const pendingExpansion: Array<{ index: number; direction: Direction }> = [];
+  const pendingExpansion: number[] = [];
 
-  const collectOverflow = (index: number, direction: Direction): void => {
-    if (!budgetLimited) return;
-    if ((admitted.get(index)?.depth ?? 0) < depthReached) return;
-    const neighbours = direction === 'up' ? dataset.advisors(index) : dataset.students(index);
-    let hidden = 0;
-    for (const neighbour of neighbours) if (!admitted.has(neighbour)) hidden++;
-    if (hidden === 0) return;
-    const key = overflowKey(index, direction);
-    if (expanded.has(key)) pendingExpansion.push({ index, direction });
-    else overflows.push({ key, source: index, direction, hidden });
-  };
-
-  for (const index of [...admitted.keys()]) {
-    collectOverflow(index, 'up');
-    collectOverflow(index, 'down');
+  if (down.refused > 0) {
+    for (const node of admitted.values()) {
+      if (node.relation === 'ancestor') continue;
+      if (node.depth < down.reached) continue;
+      const hiddenNodes = [...dataset.students(node.index)].filter((n) => !admitted.has(n));
+      if (hiddenNodes.length === 0) continue;
+      const key = overflowKey(node.index, 'down');
+      if (expanded.has(key)) pendingExpansion.push(node.index);
+      else overflows.push({ key, source: node.index, direction: 'down', hidden: hiddenNodes.length });
+    }
   }
 
-  // Opened handles pull in their neighbours, but only up to the expansion
-  // budget — otherwise one click on Hilbert's "+79 more" would blow past every
-  // limit the ring-by-ring expansion just enforced.
-  for (const { index, direction } of pendingExpansion) {
-    const neighbours = direction === 'up' ? dataset.advisors(index) : dataset.students(index);
-    const hiddenNodes = [...neighbours].filter((n) => !admitted.has(n));
+  // An opened handle pulls in its students, but only up to the expansion
+  // budget — otherwise one click would blow past the limit the generation-by-
+  // generation expansion just enforced.
+  for (const index of pendingExpansion) {
+    const hiddenNodes = [...dataset.students(index)].filter((n) => !admitted.has(n));
     const admitCount = Math.min(hiddenNodes.length, expansionBudget);
-    const parentDepth = admitted.get(index)!.depth;
+    const depth = (admitted.get(index)?.depth ?? 0) + 1;
     for (const neighbour of hiddenNodes.slice(0, admitCount)) {
-      admitted.set(neighbour, {
-        index: neighbour,
-        depth: parentDepth + 1,
-        relation: direction === 'up' ? 'ancestor' : 'descendant',
-      });
+      admitted.set(neighbour, { index: neighbour, depth, relation: 'descendant' });
     }
     if (hiddenNodes.length > admitCount) {
       overflows.push({
-        key: overflowKey(index, direction),
+        key: overflowKey(index, 'down'),
         source: index,
-        direction,
+        direction: 'down',
         hidden: hiddenNodes.length - admitCount,
       });
     }
   }
 
   // ------------------------------------------------------------- edges
-  // Every edge between admitted nodes is drawn, not just the ones BFS traversed.
-  // Those extra edges are the point: they are where the genealogy stops being a
-  // tree, e.g. an advisor of both a student and that student's own student.
+  // Every edge between admitted nodes is drawn, not only the ones the walk
+  // followed. Those extra edges are the point: they are where the genealogy
+  // stops being a tree, such as an advisor of both a student and that student's
+  // own student.
   const edges: Array<[number, number]> = [];
   for (const index of admitted.keys()) {
     for (const student of dataset.students(index)) {
@@ -231,34 +190,49 @@ export function neighborhood(
     nodes: [...admitted.values()].sort((a, b) => a.depth - b.depth || a.index - b.index),
     edges,
     overflows: overflows.sort((a, b) => b.hidden - a.hidden),
-    depthReached,
-    requestedDepth: depth,
-    nextRingSize,
-    budgetLimited,
+    ancestorsReached: up.reached,
+    descendantsReached: down.reached,
+    requestedDescendants: wantDown,
+    nextRingSize: down.refused,
+    budgetLimited: down.refused > 0,
   };
 }
 
 /**
- * Node counts per depth, for telling the user what a deeper setting would cost.
+ * How many people lie within each generation in one direction, for telling the
+ * reader what a deeper setting would cost.
  */
-export function depthProfile(dataset: Dataset, root: number, maxDepth = MAX_DEPTH): number[] {
+export function directionProfile(
+  dataset: Dataset,
+  root: number,
+  direction: Direction,
+  maxDepth: number,
+): number[] {
+  const step = direction === 'up'
+    ? (index: number) => dataset.advisors(index)
+    : (index: number) => dataset.students(index);
+
   const seen = new Set<number>([root]);
-  const counts = [1];
+  const counts = [0];
   let frontier = [root];
 
-  for (let hop = 1; hop <= maxDepth; hop++) {
+  for (let generation = 1; generation <= maxDepth; generation++) {
     const next: number[] = [];
     for (const index of frontier) {
-      for (const advisor of dataset.advisors(index)) {
-        if (!seen.has(advisor)) { seen.add(advisor); next.push(advisor); }
-      }
-      for (const student of dataset.students(index)) {
-        if (!seen.has(student)) { seen.add(student); next.push(student); }
+      for (const neighbour of step(index)) {
+        if (!seen.has(neighbour)) {
+          seen.add(neighbour);
+          next.push(neighbour);
+        }
       }
     }
-    counts.push(seen.size);
+    counts.push(seen.size - 1);
     frontier = next;
-    if (next.length === 0) break;
+    // Pad, so the caller can index by depth without a bounds check.
+    if (next.length === 0) {
+      while (counts.length <= maxDepth) counts.push(seen.size - 1);
+      break;
+    }
   }
   return counts;
 }
