@@ -128,18 +128,12 @@ export function LcaPage() {
                   </span>
                 ))}
               </p>
-              <figure className="plate">
-                <GraphView
-                  nodes={nodes}
-                  edges={group.edges}
-                  focusIndex={group.ancestors[0] ?? group.targets[0]}
-                  onSelect={(index) => navigate(`/person/${dataset.ids[index]}`)}
-                />
-                <figcaption className="plate-caption">
-                  <span className="fignum">Figure {position + 1}.</span>{' '}
-                  {group.nodes.length} people on the connecting paths.
-                </figcaption>
-              </figure>
+              <GraphView
+                nodes={nodes}
+                edges={group.edges}
+                focusIndex={group.ancestors[0] ?? group.targets[0]}
+                onSelect={(index) => navigate(`/person/${dataset.ids[index]}`)}
+              />
             </section>
           ))}
 

@@ -212,23 +212,15 @@ export function PersonPage() {
         </div>
       )}
 
-      <figure className="plate">
-        <GraphView
-          nodes={nodes}
-          edges={view?.edges ?? []}
-          overflows={view?.overflows ?? []}
-          onSelect={(target) => navigate(`/person/${dataset.ids[target]}`)}
-          onExpand={toggleExpand}
-          focusIndex={index}
-          emptyMessage="No advisors or students recorded for this person."
-        />
-        <figcaption className="plate-caption">
-          <span className="fignum">Figure 1.</span>{' '}
-          {dataset.displayName(index)} within{' '}
-          {view?.depthReached === 1 ? 'one generation' : `${view?.depthReached} generations`},
-          advisors above and students below.
-        </figcaption>
-      </figure>
+      <GraphView
+        nodes={nodes}
+        edges={view?.edges ?? []}
+        overflows={view?.overflows ?? []}
+        onSelect={(target) => navigate(`/person/${dataset.ids[target]}`)}
+        onExpand={toggleExpand}
+        focusIndex={index}
+        emptyMessage="No advisors or students recorded for this person."
+      />
 
       <div className="legend">
         <span><i className="swatch target" /> this person</span>

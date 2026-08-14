@@ -241,9 +241,8 @@ label {
 
 /* ------------------------------------------------------------------- plate */
 /* The graph is a plate in the sense a printed book means it: a drawing on the
-   same paper as the text, with a caption — not a widget in a card. */
+   same paper as the text, not a widget in a card. */
 
-figure.plate { margin: 0; }
 .plate-frame {
   position: relative; height: min(74vh, 700px);
   border-top: 1px solid var(--ink); border-bottom: 1px solid var(--hair);
@@ -253,9 +252,6 @@ figure.plate { margin: 0; }
 .plate-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink-faint); text-align: center; padding: 32px; }
 .plate-tools { position: absolute; top: 14px; right: 0; z-index: 5; display: flex; gap: 18px; }
 .plate-tools .button { font-size: 0.8rem; }
-.plate-caption { margin: 14px 0 0; font-size: 0.86rem; color: var(--ink-soft); max-width: var(--measure); }
-.plate-caption .fignum { font-variant-caps: all-small-caps; letter-spacing: 0.08em; color: var(--ink); font-weight: 600; }
-
 .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 0.82rem; color: var(--ink-soft); margin-top: 12px; }
 .legend span { display: inline-flex; align-items: center; gap: 7px; }
 .swatch { width: 13px; height: 11px; display: inline-block; border: 1px solid var(--ink); }
