@@ -246,6 +246,10 @@ export function GraphView({
             'text-halign': 'center',
             'text-wrap': 'ellipsis',
             'text-max-width': '176px',
+            // Below ~7px on screen a name is grey noise that obscures the shape
+            // of the graph. Cytoscape drops the text entirely at that point, so
+            // a dense view reads as clean boxes and names return on zoom in.
+            'min-zoomed-font-size': 7,
             width: 'label',
             height: 20,
             padding: '7px',

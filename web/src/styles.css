@@ -88,6 +88,7 @@ p.lede { font-size: 1.1rem; color: var(--muted); max-width: 62ch; }
   font-size: 0.95rem;
   cursor: pointer;
   text-decoration: none;
+  white-space: nowrap;
 }
 .button:hover { border-color: var(--accent); color: var(--accent); }
 .button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
