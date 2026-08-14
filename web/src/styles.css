@@ -43,7 +43,14 @@
 
 * { box-sizing: border-box; }
 
-html { color-scheme: light; }
+html {
+  color-scheme: light;
+  /* iOS Safari inflates the font of any block it judges too narrow, which made
+     the monospace metadata in search results render larger than the names
+     beside it. This turns the guessing off; the layout is already responsive. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
 
 body {
   margin: 0;
@@ -199,9 +206,9 @@ label {
   color: inherit; text-align: left; cursor: pointer;
 }
 .entry:hover .entry-who { color: var(--oxblood); }
-.entry-who { flex-shrink: 1; min-width: 0; }
+.entry-who { flex-shrink: 1; min-width: 0; overflow-wrap: anywhere; }
 .entry-leader { flex: 1 1 auto; margin: 0 10px; border-bottom: 1px dotted var(--ink-faint); transform: translateY(-4px); min-width: 18px; }
-.entry-where { flex-shrink: 0; color: var(--ink-soft); font-size: 0.84rem; font-family: var(--mono); }
+.entry-where { flex-shrink: 0; min-width: 0; color: var(--ink-soft); font-size: 0.84rem; font-family: var(--mono); overflow-wrap: anywhere; }
 .entry-id { font-family: var(--mono); font-size: 0.78rem; color: var(--ink-faint); }
 
 /* ------------------------------------------------------------------ record */
@@ -285,10 +292,12 @@ footer.colophon a { color: var(--ink-faint); }
   .page { padding-bottom: 56px; }
   .cover { padding: 44px 0 36px; }
   .facts li { grid-template-columns: 1fr; gap: 2px; }
-  .contents .row { flex-wrap: wrap; }
-  .entry { flex-wrap: wrap; }
+  /* Two lines rather than one: at this width a name and an institution cannot
+     share a row without one of them being cut off. */
+  .entry { display: block; padding: 10px 0; }
+  .entry-who { display: block; }
   .entry-leader { display: none; }
-  .entry-where { margin-left: auto; }
+  .entry-where { display: block; margin-top: 1px; font-size: 0.74rem; }
   header.runhead .inner { flex-wrap: wrap; gap: 10px 16px; }
 }
 

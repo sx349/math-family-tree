@@ -8,6 +8,10 @@
  * Results are set as a table of contents: name, dotted leader, then where and
  * when. It reads far better than a two-column grid at this density, and it is
  * the pattern this typography already has for "label, then where to find it".
+ *
+ * Searching is explicit — submit, or press Enter. Results that rearranged
+ * themselves under the cursor on every keystroke made the list impossible to
+ * read while typing, and re-ran a full scan for every prefix of the query.
  */
 
 import { useMemo, useState, type ReactNode } from 'react';
@@ -27,14 +31,28 @@ const EMPTY: Query = {};
 export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchProps) {
   const dataset = useDataset();
   const [query, setQuery] = useState<Query>(EMPTY);
+  const [submitted, setSubmitted] = useState<Query | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const result = useMemo(() => search(dataset, query, DEFAULT_RESULT_LIMIT), [dataset, query]);
+  const result = useMemo(
+    () => (submitted ? search(dataset, submitted, DEFAULT_RESULT_LIMIT) : null),
+    [dataset, submitted],
+  );
   const update = (patch: Partial<Query>) => setQuery((current) => ({ ...current, ...patch }));
   const hasInput = Object.values(query).some((value) => value !== undefined && value !== '');
 
+  const clear = () => {
+    setQuery(EMPTY);
+    setSubmitted(null);
+  };
+
   return (
-    <div>
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        setSubmitted(hasInput ? query : null);
+      }}
+    >
       <div className="field-grid">
         <div>
           <label htmlFor="family">Last / family name</label>
@@ -103,18 +121,19 @@ export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchPr
       )}
 
       <div className="controls">
+        <button className="button" type="submit" disabled={!hasInput}>Search</button>
         <button className="button quiet" type="button" onClick={() => setShowAdvanced((v) => !v)}>
           {showAdvanced ? 'Fewer fields' : 'More fields'}
         </button>
-        {hasInput && (
-          <button className="button quiet" type="button" onClick={() => setQuery(EMPTY)}>Clear</button>
+        {(hasInput || submitted) && (
+          <button className="button quiet" type="button" onClick={clear}>Clear</button>
         )}
         <span className="small faint">
           All fields are combined with <em>and</em>
         </span>
       </div>
 
-      {hasInput && (
+      {result && (
         <>
           <p className="small faint" style={{ margin: 0 }}>
             {result.total === 0
@@ -152,6 +171,6 @@ export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchPr
           </ul>
         </>
       )}
-    </div>
+    </form>
   );
 }
