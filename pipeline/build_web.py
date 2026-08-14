@@ -114,6 +114,40 @@ def write_gz(path: Path, payload: bytes) -> int:
     return path.stat().st_size
 
 
+class Packer:
+    """Builds a binary blob with every array 4-byte aligned.
+
+    Alignment matters because the browser maps these buffers as typed arrays
+    directly; a `Uint32Array` view at a non-multiple-of-4 offset throws.  The
+    reader recreates the offsets by applying the same padding rule, so no offset
+    table needs to be stored.
+    """
+
+    ALIGNMENT = 4
+
+    def __init__(self) -> None:
+        self._parts: list[bytes] = []
+        self._size = 0
+
+    def raw(self, payload: bytes) -> None:
+        self._parts.append(payload)
+        self._size += len(payload)
+
+    def array(self, values: Iterable[int], fmt: str) -> None:
+        values = list(values)
+        if padding := -self._size % self.ALIGNMENT:
+            self.raw(b"\0" * padding)
+        self.raw(struct.pack(f"<{len(values)}{fmt}", *values))
+
+    def blob(self, payload: bytes) -> None:
+        if padding := -self._size % self.ALIGNMENT:
+            self.raw(b"\0" * padding)
+        self.raw(payload)
+
+    def bytes(self) -> bytes:
+        return b"".join(self._parts)
+
+
 class StringTable:
     """Interns strings, reserving index 0 for "absent"."""
 
@@ -160,49 +194,49 @@ def build(snapshot_path: Path, out_dir: Path) -> dict[str, Any]:
     # successive deltas: both are small, highly repetitive numbers that gzip
     # crushes, whereas the monotonically increasing forms are near-incompressible.
     # The browser prefix-sums them back into CSR offsets in a single pass.
-    def csr(adjacency: list[list[int]]) -> tuple[bytes, bytes, int]:
-        flat = [node for neighbours in adjacency for node in neighbours]
-        return (
-            struct.pack(f"<{len(adjacency)}H", *(len(n) for n in adjacency)),
-            struct.pack(f"<{len(flat)}I", *flat),
-            len(flat),
-        )
-
-    child_counts, child_targets, edge_count = csr(children)
-    parent_counts, parent_targets, _ = csr(parents)
+    flat_children = [node for row in children for node in row]
+    flat_parents = [node for row in parents for node in row]
+    edge_count = len(flat_children)
+    if max((len(row) for row in children), default=0) > 65535:
+        raise ValueError("a student count exceeds the uint16 field")
 
     ids = [p["id"] for p in people]
     id_deltas = [ids[0]] + [ids[i] - ids[i - 1] for i in range(1, count)]
 
-    graph = b"".join([
-        b"MGPG",
-        struct.pack("<III", FORMAT_VERSION, count, edge_count),
-        struct.pack(f"<{count}I", *id_deltas),
-        child_counts, child_targets,
-        parent_counts, parent_targets,
-    ])
+    packer = Packer()
+    packer.raw(b"MGPG")
+    packer.raw(struct.pack("<III", FORMAT_VERSION, count, edge_count))
+    packer.array(id_deltas, "I")
+    packer.array((len(row) for row in children), "H")
+    packer.array(flat_children, "I")
+    packer.array((len(row) for row in parents), "H")
+    packer.array(flat_parents, "I")
+    graph = packer.bytes()
 
     # ---------------- names + search order ----------------
     display = [f"{p['family']}\t{p['given']}\t{p['other']}" for p in people]
     folded = [fold(d) for d in display]
 
     # Byte lengths rather than offsets, for the same compression reason as above.
-    blob = "".join(display).encode("utf-8")
-    lengths = [len(text.encode("utf-8")) for text in display]
+    encoded = [text.encode("utf-8") for text in display]
+    lengths = [len(b) for b in encoded]
     if max(lengths, default=0) > 65535:
         raise ValueError("a name exceeds the uint16 length field")
-    names = b"".join([
-        b"MGPN",
-        struct.pack("<II", FORMAT_VERSION, count),
-        struct.pack(f"<{count}H", *lengths),
-        struct.pack("<I", len(blob)),
-        blob,
-    ])
+
+    packer = Packer()
+    packer.raw(b"MGPN")
+    packer.raw(struct.pack("<II", FORMAT_VERSION, count))
+    packer.array(lengths, "H")
+    packer.array([sum(lengths)], "I")
+    packer.blob(b"".join(encoded))
+    names = packer.bytes()
 
     order = sorted(range(count), key=lambda i: (folded[i], i))
-    order_bytes = b"MGPO" + struct.pack("<II", FORMAT_VERSION, count) + struct.pack(
-        f"<{count}I", *order
-    )
+    packer = Packer()
+    packer.raw(b"MGPO")
+    packer.raw(struct.pack("<II", FORMAT_VERSION, count))
+    packer.array(order, "I")
+    order_bytes = packer.bytes()
 
     exceptions = {i: folded[i] for i in range(count) if display[i].lower() != folded[i]}
     fold_exceptions = {
@@ -235,24 +269,19 @@ def build(snapshot_path: Path, out_dir: Path) -> dict[str, Any]:
         flags.append((1 if person["stub"] else 0) | (2 if len(degrees) > 1 else 0))
         student_counts.append(min(len(person["students"]), 65535))
 
-    def column(values: list[int], fmt: str) -> bytes:
-        return struct.pack(f"<{len(values)}{fmt}", *values)
-
-    for table, name in ((schools, "schools"), (countries, "countries")):
+    for table, name in ((schools, "schools"), (countries, "countries"),
+                        (degree_types, "degreeTypes"), (mscs, "mscs")):
         if len(table.values) > 65535:
             raise ValueError(f"{name} table exceeds uint16 range")
 
-    meta = b"".join([
-        b"MGPM",
-        struct.pack("<II", FORMAT_VERSION, count),
-        column(years, "H"),
-        column(school_ids, "H"),
-        column(country_ids, "H"),
-        column(degree_ids, "H"),
-        column(msc_ids, "H"),
-        column(flags, "B"),
-        column(student_counts, "H"),
-    ])
+    packer = Packer()
+    packer.raw(b"MGPM")
+    packer.raw(struct.pack("<II", FORMAT_VERSION, count))
+    for column, fmt in ((years, "H"), (school_ids, "H"), (country_ids, "H"),
+                        (degree_ids, "H"), (msc_ids, "H"), (flags, "B"),
+                        (student_counts, "H")):
+        packer.array(column, fmt)
+    meta = packer.bytes()
 
     dicts = {
         "schools": schools.values,
