@@ -208,8 +208,7 @@ export function PersonPage() {
         <div className="notice warn">
           Stopped at depth <strong>{view.depthReached}</strong> of the {depth} requested: the next
           generation would add {view.nextRingSize.toLocaleString()} more people, over the{' '}
-          {budget}-node limit. Open a <em>+N more</em> handle to follow a specific branch, or
-          raise the limit.
+          {budget}-node limit.
         </div>
       )}
 
@@ -225,11 +224,9 @@ export function PersonPage() {
         />
         <figcaption className="plate-caption">
           <span className="fignum">Figure 1.</span>{' '}
-          {dataset.displayName(index)} within {view?.depthReached === 1 ? 'one generation' : `${view?.depthReached} generations`},
-          advisors above and students below. Arrows run from advisor to student.
-          Ruled in oxblood is the person in question; dashed is a name we hold without a record.
-          <strong> +N</strong> marks hidden advisors or students — click one to open that branch,
-          or click any person to go to their page.
+          {dataset.displayName(index)} within{' '}
+          {view?.depthReached === 1 ? 'one generation' : `${view?.depthReached} generations`},
+          advisors above and students below.
         </figcaption>
       </figure>
 

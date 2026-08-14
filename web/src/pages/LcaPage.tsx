@@ -45,10 +45,7 @@ export function LcaPage() {
   return (
     <div className="page">
       <h1>Common ancestors</h1>
-      <p className="lede">
-        Pick up to {MAX_TARGETS} mathematicians. The diagram shows the lowest advisors they all
-        descend from, and only the paths that connect them.
-      </p>
+      <p className="lede">Pick up to {MAX_TARGETS} mathematicians.</p>
 
       {selected.length > 0 && (
         <div className="chips">
@@ -90,9 +87,6 @@ export function LcaPage() {
             Clear
           </button>
         )}
-        {selected.length < 2 && (
-          <span className="muted small">Select at least two people below.</span>
-        )}
       </div>
 
       {result && (
@@ -100,16 +94,13 @@ export function LcaPage() {
           {result.groups.length === 0 && (
             <div className="notice warn">
               None of the selected people share an advisor lineage within {generations(maxDepth)}.
-              Try raising the limit — though many lineages genuinely never meet, since MGP's
-              records thin out before the 18th century.
             </div>
           )}
 
           {result.groups.length > 1 && (
             <div className="notice">
-              The selection splits into {result.groups.length} separate families — there is no
-              single ancestor common to all of them within {generations(maxDepth)}, so each is
-              drawn on its own below.
+              The selection splits into {result.groups.length} separate families within{' '}
+              {generations(maxDepth)}.
             </div>
           )}
 
@@ -136,9 +127,6 @@ export function LcaPage() {
                     {hops.every((hop) => hop === 1) ? '' : 's'} down)
                   </span>
                 ))}
-                {group.ancestors.length > 1 && (
-                  <> — neither is an ancestor of the other, so both are equally lowest.</>
-                )}
               </p>
               <figure className="plate">
                 <GraphView
@@ -149,8 +137,7 @@ export function LcaPage() {
                 />
                 <figcaption className="plate-caption">
                   <span className="fignum">Figure {position + 1}.</span>{' '}
-                  Only the paths connecting the selection are drawn. The people you chose are
-                  ruled in oxblood; the ancestor answering the question is ruled heavier.
+                  {group.nodes.length} people on the connecting paths.
                 </figcaption>
               </figure>
             </section>

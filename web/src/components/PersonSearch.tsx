@@ -128,9 +128,6 @@ export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchPr
         {(hasInput || submitted) && (
           <button className="button quiet" type="button" onClick={clear}>Clear</button>
         )}
-        <span className="small faint">
-          All fields are combined with <em>and</em>
-        </span>
       </div>
 
       {result && (
@@ -140,7 +137,6 @@ export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchPr
               ? 'No matches.'
               : `${result.total.toLocaleString()} match${result.total === 1 ? '' : 'es'}` +
                 (result.truncated ? `, showing the first ${result.indices.length}` : '')}
-            {result.scanned && result.total > 0 && ' · a family name narrows this faster'}
           </p>
 
           <ul className="contents">

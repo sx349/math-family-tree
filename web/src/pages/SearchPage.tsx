@@ -10,9 +10,6 @@ export function SearchPage() {
   return (
     <div className="page narrow">
       <h1>Search</h1>
-      <p className="lede">
-        Click any result to open their genealogy.
-      </p>
       <PersonSearch autoFocus onPick={(index) => navigate(`/person/${dataset.ids[index]}`)} />
     </div>
   );
