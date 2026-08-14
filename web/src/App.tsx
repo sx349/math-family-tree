@@ -42,14 +42,13 @@ function Chrome() {
         />
       </Routes>
 
+      {/* Attribution is an obligation; everything else was padding. */}
       <footer className="colophon">
-        <div className="inner">
-          Data from the{' '}
-          <a href="https://www.genealogy.math.ndsu.nodak.edu/" target="_blank" rel="noreferrer">
-            Mathematics Genealogy Project
-          </a>
-          , North Dakota State University. An independent visualisation, not affiliated with them.
-        </div>
+        Data from the{' '}
+        <a href="https://www.genealogy.math.ndsu.nodak.edu/" target="_blank" rel="noreferrer">
+          Mathematics Genealogy Project
+        </a>
+        {' '}· not affiliated
       </footer>
     </>
   );

@@ -113,7 +113,7 @@ header.runhead nav a[aria-current='page'] { color: var(--oxblood); }
 
 /* ------------------------------------------------------------------ cover */
 
-.cover { text-align: center; padding: 76px 0 64px; display: flex; flex-direction: column; align-items: center; }
+.cover { text-align: center; padding: 76px 0 40px; display: flex; flex-direction: column; align-items: center; }
 .wordmark { width: min(100%, 720px); height: auto; display: block; }
 .cover-lede { max-width: 44ch; margin: 30px auto 0; font-size: 1.06rem; line-height: 1.7; text-wrap: balance; }
 .cover-count { margin: 44px 0 0; font-size: 1.02rem; }
@@ -274,8 +274,11 @@ figure.plate { margin: 0; }
 
 /* ------------------------------------------------------------------ footer */
 
-footer.colophon { border-top: 1px solid var(--hair); margin-top: 64px; padding: 22px var(--gutter) 40px; }
-footer.colophon .inner { max-width: var(--measure); margin: 0 auto; color: var(--ink-faint); font-size: 0.84rem; }
+footer.colophon {
+  max-width: 1080px; margin: 0 auto; padding: 14px var(--gutter) 36px;
+  color: var(--ink-faint); font-size: 0.78rem;
+}
+footer.colophon a { color: var(--ink-faint); }
 
 @media (max-width: 640px) {
   body { font-size: 16.5px; }
