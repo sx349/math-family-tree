@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import re
 import struct
 import unicodedata
 from datetime import datetime, timezone
@@ -168,6 +169,23 @@ class StringTable:
 def country_of(school: str) -> str:
     """MGP stores school and country as one string: "MIT, United States"."""
     return school.rsplit(", ", 1)[-1].strip() if ", " in school else ""
+
+
+def infer_data_date(source_file: str | None) -> str | None:
+    """Pull the collection date out of a raw dump's filename.
+
+    The date the data was *collected* is what a reader cares about, and it is
+    not the date we happened to run the build — a snapshot rebuilt months later
+    is still months-old data. Our dumps are named with the date they were
+    fetched (mgp_data_20260622.json), so that is where it comes from.
+    """
+    if not source_file:
+        return None
+    match = re.search(r"(20\d{2})[-_]?(\d{2})[-_]?(\d{2})", source_file)
+    if not match:
+        return None
+    year, month, day = match.groups()
+    return f"{year}-{month}-{day}"
 
 
 def build(snapshot_path: Path, out_dir: Path) -> dict[str, Any]:
@@ -319,6 +337,9 @@ def build(snapshot_path: Path, out_dir: Path) -> dict[str, Any]:
         shard_count += 1
 
     # ---------------- write everything ----------------
+    report_path = snapshot_path.parent / "report.json"
+    source_report = json.loads(report_path.read_text()) if report_path.exists() else {}
+
     files = {
         "graph.bin.gz": write_gz(out_dir / "graph.bin.gz", graph),
         "names.bin.gz": write_gz(out_dir / "names.bin.gz", names),
@@ -334,12 +355,13 @@ def build(snapshot_path: Path, out_dir: Path) -> dict[str, Any]:
         ),
     }
 
-    report_path = snapshot_path.parent / "report.json"
-    source_report = json.loads(report_path.read_text()) if report_path.exists() else {}
-
     manifest = {
         "formatVersion": FORMAT_VERSION,
         "builtAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        # When the data was collected, which is what the site shows. Falls back
+        # to the build date only when the source filename carries no date.
+        "dataDate": infer_data_date(source_report.get("source_file"))
+        or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "nodeCount": count,
         "edgeCount": edge_count,
         "stubCount": sum(1 for p in people if p["stub"]),

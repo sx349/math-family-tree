@@ -1,4 +1,4 @@
-# Math Family Tree
+# Mathematics Genealogy Visualizer
 
 A visualisation of advisor–student lineages from the
 [Mathematics Genealogy Project](https://www.genealogy.math.ndsu.nodak.edu/) (MGP).
@@ -16,6 +16,11 @@ name narrows the result instead of returning everyone matching either.
 The site is fully static. The whole graph is loaded into the browser once (~7 MB gzipped),
 after which search, neighbourhood expansion and ancestor queries all run locally with no
 server round-trips.
+
+It is set as a printed page — laid ecru paper, green-black ink, Caslon Open Face for the
+wordmark — after the cover of the *Annals of Mathematics*. Light only: paper has no honest
+inversion, and a flipped-token dark mode would read as a different design rather than the
+same one at night.
 
 ## Repository layout
 

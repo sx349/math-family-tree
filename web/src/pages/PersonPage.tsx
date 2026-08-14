@@ -95,9 +95,10 @@ export function PersonPage() {
 
   return (
     <div className="page">
-      <h1 style={{ marginBottom: 4 }}>{dataset.displayName(index)}</h1>
-      <p className="muted small" style={{ marginTop: 0 }}>
-        MGP <a href={dataset.mgpUrl(index)} target="_blank" rel="noreferrer">#{person.id}</a>
+      <h1>{dataset.displayName(index)}</h1>
+      <p className="record-id">
+        MGP <a href={dataset.mgpUrl(index)} target="_blank" rel="noreferrer">{person.id}</a>
+        {person.mscLabel && ` · ${person.mscLabel}`}
         {person.isStub && ' · name only in this snapshot'}
       </p>
 
@@ -109,7 +110,7 @@ export function PersonPage() {
           the full entry.
         </div>
       ) : (
-        <ul className="facts" style={{ margin: '18px 0 26px' }}>
+        <ul className="facts" style={{ marginBottom: 8 }}>
           {detail?.degrees.map((degree, position) => (
             <li key={position}>
               <span className="key">{degree.type || 'Degree'}</span>
@@ -128,14 +129,6 @@ export function PersonPage() {
             <li>
               <span className="key">Degree</span>
               <span className="muted">loading…</span>
-            </li>
-          )}
-          {person.mscLabel && (
-            <li>
-              <span className="key">Subject</span>
-              <span>
-                {person.mscLabel} <span className="muted small">(MSC {person.msc})</span>
-              </span>
             </li>
           )}
           <li>
@@ -159,7 +152,7 @@ export function PersonPage() {
               {students.length === 0 ? (
                 <span className="muted">none recorded</span>
               ) : (
-                `${students.length.toLocaleString()} recorded`
+                <span className="num">{students.length.toLocaleString()} recorded</span>
               )}
             </span>
           </li>
@@ -222,29 +215,30 @@ export function PersonPage() {
         </div>
       )}
 
-      <GraphView
-        nodes={nodes}
-        edges={view?.edges ?? []}
-        overflows={view?.overflows ?? []}
-        onSelect={(target) => navigate(`/person/${dataset.ids[target]}`)}
-        onExpand={toggleExpand}
-        focusIndex={index}
-        emptyMessage="No advisors or students recorded for this person."
-      />
+      <figure className="plate">
+        <GraphView
+          nodes={nodes}
+          edges={view?.edges ?? []}
+          overflows={view?.overflows ?? []}
+          onSelect={(target) => navigate(`/person/${dataset.ids[target]}`)}
+          onExpand={toggleExpand}
+          focusIndex={index}
+          emptyMessage="No advisors or students recorded for this person."
+        />
+        <figcaption className="plate-caption">
+          <span className="fignum">Figure 1.</span>{' '}
+          {dataset.displayName(index)} within {view?.depthReached === 1 ? 'one generation' : `${view?.depthReached} generations`},
+          advisors above and students below. Arrows run from advisor to student.
+          Ruled in oxblood is the person in question; dashed is a name we hold without a record.
+          <strong> +N</strong> marks hidden advisors or students — click one to open that branch,
+          or click any person to go to their page.
+        </figcaption>
+      </figure>
 
       <div className="legend">
-        <span><i className="swatch" style={{ background: 'var(--root)' }} /> this person</span>
-        <span><i className="swatch" style={{ background: 'var(--ancestor)' }} /> advisors</span>
-        <span><i className="swatch" style={{ background: 'var(--descendant)' }} /> students</span>
-        <span><i className="swatch" style={{ background: 'var(--muted)' }} /> related both ways</span>
-        <span>
-          <i className="swatch" style={{ background: 'var(--surface)', border: '1px solid var(--stub)' }} />{' '}
-          name only
-        </span>
-        <span>
-          Arrows point from advisor to student. <strong>+N</strong> marks hidden advisors (above)
-          or students (below) — click to open that branch. Click any person to go to their page.
-        </span>
+        <span><i className="swatch target" /> this person</span>
+        <span><i className="swatch" /> advisors, students and relations</span>
+        <span><i className="swatch stub" /> name only</span>
       </div>
     </div>
   );

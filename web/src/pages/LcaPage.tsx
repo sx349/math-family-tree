@@ -54,7 +54,7 @@ export function LcaPage() {
         <div className="chips">
           {selected.map((index) => (
             <span className="chip" key={index}>
-              {dataset.displayName(index)} <span className="muted small">#{dataset.ids[index]}</span>
+              {dataset.displayName(index)} <span className="chip-id">#{dataset.ids[index]}</span>
               <button type="button" aria-label={`Remove ${dataset.displayName(index)}`} onClick={() => remove(index)}>
                 ✕
               </button>
@@ -140,19 +140,26 @@ export function LcaPage() {
                   <> — neither is an ancestor of the other, so both are equally lowest.</>
                 )}
               </p>
-              <GraphView
-                nodes={nodes}
-                edges={group.edges}
-                focusIndex={group.ancestors[0] ?? group.targets[0]}
-                onSelect={(index) => navigate(`/person/${dataset.ids[index]}`)}
-              />
+              <figure className="plate">
+                <GraphView
+                  nodes={nodes}
+                  edges={group.edges}
+                  focusIndex={group.ancestors[0] ?? group.targets[0]}
+                  onSelect={(index) => navigate(`/person/${dataset.ids[index]}`)}
+                />
+                <figcaption className="plate-caption">
+                  <span className="fignum">Figure {position + 1}.</span>{' '}
+                  Only the paths connecting the selection are drawn. The people you chose are
+                  ruled in oxblood; the ancestor answering the question is ruled heavier.
+                </figcaption>
+              </figure>
             </section>
           ))}
 
-          <div className="legend" style={{ marginBottom: 24 }}>
-            <span><i className="swatch" style={{ background: 'var(--root)' }} /> selected</span>
-            <span><i className="swatch" style={{ background: 'var(--ancestor)' }} /> lowest common ancestor</span>
-            <span><i className="swatch" style={{ background: 'var(--muted)' }} /> on a connecting path</span>
+          <div className="legend" style={{ marginBottom: 28 }}>
+            <span><i className="swatch target" /> selected</span>
+            <span><i className="swatch lca" /> lowest common ancestor</span>
+            <span><i className="swatch" /> on a connecting path</span>
           </div>
         </>
       )}
