@@ -99,15 +99,13 @@ export function PersonPage() {
       <p className="record-id">
         MGP <a href={dataset.mgpUrl(index)} target="_blank" rel="noreferrer">{person.id}</a>
         {person.mscLabel && ` · ${person.mscLabel}`}
-        {person.isStub && ' · name only in this snapshot'}
       </p>
 
       {person.isStub ? (
         <div className="notice">
-          MGP references this person as an advisor or student, but our snapshot does not hold
-          their own record — only their name and their links. Their{' '}
-          <a href={dataset.mgpUrl(index)} target="_blank" rel="noreferrer">MGP page</a> will have
-          the full entry.
+          No record for this person in the snapshot — only their name and who they connect to.{' '}
+          <a href={dataset.mgpUrl(index)} target="_blank" rel="noreferrer">Their MGP page</a>{' '}
+          may have more.
         </div>
       ) : (
         <ul className="facts" style={{ marginBottom: 8 }}>

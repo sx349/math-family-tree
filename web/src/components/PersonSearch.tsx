@@ -150,18 +150,23 @@ export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchPr
               const students = person.studentCount > 0
                 ? `${person.studentCount} student${person.studentCount === 1 ? '' : 's'}`
                 : '';
+              // Someone we hold only a name for simply has nothing to the right
+              // of their name. Saying so, or ruling a leader out to a dash, is
+              // noise — the empty column already reads as "nothing recorded".
+              const meta = [where, students].filter(Boolean).join(' · ');
               return (
                 <li key={index}>
                   <div className="row">
                     <button className="entry" type="button" onClick={() => onPick(index)}>
                       <span className="entry-who">
                         {dataset.displayName(index)} <span className="entry-id">#{person.id}</span>
-                        {person.isStub && <span className="small faint"> · name only</span>}
                       </span>
-                      <span className="entry-leader" aria-hidden="true" />
-                      <span className="entry-where">
-                        {[where, students].filter(Boolean).join(' · ') || '—'}
-                      </span>
+                      {meta && (
+                        <>
+                          <span className="entry-leader" aria-hidden="true" />
+                          <span className="entry-where">{meta}</span>
+                        </>
+                      )}
                     </button>
                     {renderAction?.(index)}
                   </div>
