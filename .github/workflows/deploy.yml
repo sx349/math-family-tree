@@ -1,0 +1,84 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # Lets you redeploy without a code change — useful after refreshing the data.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race. In-progress runs finish rather than being
+# cancelled, so a deploy is not killed halfway through publishing.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        working-directory: web
+        run: npm ci
+
+      # A broken build should fail here rather than be published. The engine
+      # tests run against the committed data artifacts, so this also catches a
+      # data refresh that changed the graph in a way the code did not expect.
+      - name: Typecheck
+        working-directory: web
+        run: npm run typecheck
+
+      - name: Test
+        working-directory: web
+        run: npm test
+
+      # A project site is served from /<repo>/, a user or organisation site from
+      # the domain root. Deriving it means the workflow needs no editing if the
+      # repository is renamed or moved to a custom domain.
+      - name: Resolve base path
+        id: base
+        run: |
+          if [[ "${{ github.event.repository.name }}" == *.github.io ]]; then
+            echo "path=/" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=/${{ github.event.repository.name }}/" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        working-directory: web
+        env:
+          SITE_BASE: ${{ steps.base.outputs.path }}
+        run: npm run build
+
+      # Pages serves static files, so a deep link like /person/7298 has no file
+      # behind it. Pages falls back to 404.html, and serving the app from there
+      # lets the router take over — so shared links and hard refreshes work.
+      - name: Add SPA fallback
+        working-directory: web
+        run: cp dist/index.html dist/404.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

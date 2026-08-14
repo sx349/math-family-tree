@@ -51,9 +51,25 @@ can run the site with no extra fetch step. They are already gzipped, so git cann
 them further and each refresh adds a full copy to history; if that becomes a problem, move
 `data/**/*.gz` to Git LFS with `git lfs migrate import`.
 
-To deploy to a subpath (e.g. GitHub Pages project sites), build with
-`SITE_BASE=/math-family-tree/ npm run build` and publish `web/dist` with `data/web` copied
-to `web/dist/data`.
+## Publishing
+
+`.github/workflows/deploy.yml` builds and publishes to GitHub Pages on every push to `main`,
+and can be run by hand from the Actions tab — useful for redeploying after a data refresh
+without a code change.
+
+It needs one setting, once: **Settings → Pages → Source: GitHub Actions**.
+
+The workflow typechecks and runs the tests before building, so a broken commit fails rather
+than being published. It derives the base path from the repository name — `/<repo>/` for a
+project site, `/` for a `*.github.io` one — so nothing needs editing if the repository moves.
+It also copies `index.html` to `404.html`, because Pages serves static files and a deep link
+like `/person/7298` has no file behind it; Pages falls back to `404.html`, and serving the app
+from there lets the router take over, so shared links and hard refreshes work.
+
+Each visitor downloads about 7 MB on first load, cached afterwards. That is well within Pages'
+limits, but it is a real number if the site is shared widely.
+
+To build for a subpath by hand: `SITE_BASE=/math-family-tree/ npm run build`.
 
 ## Refreshing the data
 
