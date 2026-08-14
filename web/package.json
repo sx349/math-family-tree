@@ -4,11 +4,15 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/link-data.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/link-data.mjs",
     "build": "tsc -b && vite build",
+    "prepreview": "node scripts/link-data.mjs",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "link-data": "node scripts/link-data.mjs"
   },
   "dependencies": {
     "cytoscape": "^3.30.2",

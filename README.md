@@ -37,9 +37,11 @@ data/                   snapshot and built artifacts, committed directly
 ```bash
 cd web
 npm install
-ln -sfn ../../data/web public/data
 npm run dev
 ```
+
+That is the whole setup — the data artifacts are committed, and `npm run dev` links
+`data/web` into place for you before starting.
 
 `npm test` runs the engine tests, which load the real artifacts from `data/web` and check
 traversal results against values computed independently in Python.
