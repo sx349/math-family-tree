@@ -70,27 +70,40 @@ python3 pipeline/build_web.py
 cd web && npm run build
 ```
 
-### Incremental refresh
+### Establishing a baseline
+
+Walk the whole id range. A complete pull is the only version of this dataset that can be
+checked: `edge_direction_disagreements` comes out at 0, because every advisor link is
+declared by both people it connects, and that zero is a real integrity test over the whole
+graph. Find the current ceiling first — ids run well above the number of people, and the
+June 2026 dump already referenced id 346,142.
+
+### Updating an existing snapshot
 
 Pointing `--out` at a file that already holds a previous dump makes the fetcher skip those
-ids and append only what is new, turning a ~12 hour full pull into ~2 hours. Advisor links
-are read from both endpoints of each edge, so a person added since the last pull brings their
-own `advised by` with them and the link lands even though their advisor's older record never
-mentions them.
+ids and append only what is new. Advisor links are read from both endpoints of each edge, so
+a person added since the last pull brings their own `advised by` with them and the link lands
+even though their advisor's older record never mentions them.
 
-What an incremental pull cannot see is an edit to two records that both predate it — a second
-advisor added to an old thesis, or a link deleted. The normalizer detects the first case: when
-one person's record declares a link and the other's does not, the party that failed to declare
-it has gone stale, and `report.json` lists them under `stale_ids`. Refetching just those
-reconciles the snapshot:
+The limit of this is worth being clear about. An edit touching two records that both predate
+the pull — a second advisor added to an old thesis, a link deleted — produces no
+contradiction, because neither record was refetched. It cannot be detected, only outrun by
+keeping the window between updates short.
+
+What can be detected is an old record sitting next to a newly fetched one: if one person
+declares a link and the other does not, the silent party has changed since it was stored.
+`report.json` lists those under `stale_ids`, and refetching them picks up whatever else moved
+on those records:
 
 ```bash
 python3 scripts/mgp_fetch.py fetch --refresh-ids data/snapshot/report.json -o data/raw/mgp_dump.jsonl
-python3 pipeline/normalize.py data/raw/mgp_dump.jsonl        # disagreements should now be 0
+python3 pipeline/normalize.py data/raw/mgp_dump.jsonl
 ```
 
-Records are last-wins, so an appended fresh copy supersedes the older one, and the links it
-no longer declares are dropped rather than kept.
+Records are last-wins, so an appended fresh copy supersedes the older one, and links it no
+longer declares are dropped rather than kept. Note that on an incremental snapshot
+`edge_direction_disagreements` is expected to be non-zero, so it stops working as an
+integrity check — which is why a baseline should be a full pull.
 
 The fetch is resumable: interrupt it and rerun the same command, and it continues without
 refetching any id. Defaults are 4 workers with a delay between requests. Please do not raise
