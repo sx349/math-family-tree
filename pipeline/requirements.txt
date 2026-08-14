@@ -1,0 +1,3 @@
+# normalize.py and build_web.py use only the standard library.
+# scripts/mgp_fetch.py needs:
+requests>=2.28
