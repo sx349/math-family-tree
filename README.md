@@ -58,6 +58,13 @@ scraping `id.php`, and returns richer records.
 export MGP_EMAIL=you@example.com          # password prompted, or MGP_PASSWORD
 python3 scripts/mgp_fetch.py probe        # confirm the API endpoint shape
 python3 scripts/mgp_fetch.py fetch --max-id 350000
+```
+
+Records come from `/api/v2/MGP/acad?id=N`, which returns the `{"MGP_academic": {...}}`
+shape the normalizer expects. The API also documents `/api/v2/MGP/search` (returns a list of
+ids) and `/api/v2/MGP/siblings`, neither of which the fetch needs.
+
+```bash
 python3 pipeline/normalize.py data/raw/mgp_dump.jsonl
 python3 pipeline/build_web.py
 cd web && npm run build
