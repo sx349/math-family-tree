@@ -252,13 +252,6 @@ label {
 .plate-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink-faint); text-align: center; padding: 32px; }
 .plate-tools { position: absolute; top: 14px; right: 0; z-index: 5; display: flex; gap: 18px; }
 .plate-tools .button { font-size: 0.8rem; }
-.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 0.82rem; color: var(--ink-soft); margin-top: 12px; }
-.legend span { display: inline-flex; align-items: center; gap: 7px; }
-.swatch { width: 13px; height: 11px; display: inline-block; border: 1px solid var(--ink); }
-.swatch.target { border-color: var(--oxblood); border-width: 1.5px; }
-.swatch.lca { border-width: 2.5px; }
-.swatch.stub { border-style: dashed; border-color: var(--ink-faint); }
-
 /* ------------------------------------------------------------------ notice */
 
 .notice {

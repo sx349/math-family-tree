@@ -137,11 +137,6 @@ export function LcaPage() {
             </section>
           ))}
 
-          <div className="legend" style={{ marginBottom: 28 }}>
-            <span><i className="swatch target" /> selected</span>
-            <span><i className="swatch lca" /> lowest common ancestor</span>
-            <span><i className="swatch" /> on a connecting path</span>
-          </div>
         </>
       )}
 

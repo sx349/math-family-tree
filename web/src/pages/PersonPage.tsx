@@ -222,11 +222,6 @@ export function PersonPage() {
         emptyMessage="No advisors or students recorded for this person."
       />
 
-      <div className="legend">
-        <span><i className="swatch target" /> this person</span>
-        <span><i className="swatch" /> advisors, students and relations</span>
-        <span><i className="swatch stub" /> name only</span>
-      </div>
     </div>
   );
 }
