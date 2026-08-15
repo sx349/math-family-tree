@@ -123,6 +123,19 @@ header.runhead nav a[aria-current='page'] { color: var(--oxblood); }
 .cover { text-align: center; padding: 76px 0 40px; display: flex; flex-direction: column; align-items: center; }
 .wordmark { width: min(100%, 720px); height: auto; display: block; }
 .cover-lede { max-width: 44ch; margin: 30px auto 0; font-size: 1.06rem; line-height: 1.7; text-wrap: balance; }
+/* An epigraph, set the way a frontispiece sets one: the words in italic, the
+   name small and quiet underneath, no quotation marks doing work the
+   indentation already does. */
+.cover-epigraph { max-width: 42ch; margin: 34px auto 0; }
+.cover-epigraph p {
+  margin: 0; font-size: 1.06rem; line-height: 1.7; font-style: italic;
+  text-wrap: balance; color: var(--ink);
+}
+.cover-epigraph cite {
+  display: block; margin-top: 12px; font-style: normal;
+  font-size: 0.74rem; letter-spacing: 0.1em; color: var(--ink-faint);
+}
+.cover-epigraph cite::before { content: '— '; }
 .cover-count { margin: 44px 0 0; font-size: 1.02rem; }
 .cover-source { margin: 9px 0 0; font-size: 0.76rem; letter-spacing: 0.08em; color: var(--ink-faint); font-weight: 400; }
 .cover-actions { display: flex; gap: 40px; justify-content: center; margin: 40px 0 0; flex-wrap: wrap; }

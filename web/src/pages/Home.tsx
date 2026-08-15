@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Ornament, Wordmark } from '../components/Marks';
 import { useDataset } from '../DatasetContext';
+import { pickEpigraph } from '../lib/epigraphs';
 
 /** "2026-06-22" -> "22 June 2026". */
 function longDate(iso: string): string {
@@ -17,16 +19,19 @@ function longDate(iso: string): string {
  */
 export function Home() {
   const { manifest } = useDataset();
+  // Held in state so it is drawn once and does not change under the reader on
+  // an unrelated re-render.
+  const [epigraph] = useState(pickEpigraph);
 
   return (
     <div className="page narrow">
       <header className="cover">
         <Wordmark />
 
-        <p className="cover-lede">
-          Every doctorate has a supervisor, and every supervisor had one. Follow the line back
-          far enough and most of mathematics converges.
-        </p>
+        <blockquote className="cover-epigraph">
+          <p>{epigraph.text}</p>
+          <cite className="label">{epigraph.who}</cite>
+        </blockquote>
 
         {/* Read from the manifest so a data refresh updates the cover without
             anyone having to remember to edit it. */}
