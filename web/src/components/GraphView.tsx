@@ -53,13 +53,20 @@ const MIN_ZOOMED_FONT_SIZE = 7;
 const MIN_LEGIBLE_ZOOM = MIN_ZOOMED_FONT_SIZE / NODE_FONT_SIZE;
 
 /**
- * A lineage is tall and narrow: twenty generations stand about 2,200px high,
- * which a fixed 700px plate can only ever show a third of. So the plate takes
- * its height from the diagram, within limits, instead of the diagram being
- * cropped to the plate.
+ * A lineage is tall and narrow, and taller than it first looks: dagre ranks by
+ * longest path, so someone three generations up by one route and twelve by
+ * another is drawn at twelve. Deng's twenty requested generations become about
+ * forty-five drawn ranks and stand 4,969px high — not the ~2,200 that twenty
+ * rows would suggest. A fixed 700px plate showed a seventh of that, and an
+ * 1,800px one still cut 122 of its 218 people off the top.
+ *
+ * So the plate takes its height from the diagram. The ceiling is high enough
+ * for a full twenty-generation lineage, which is also the point where dragging
+ * goes back to scrolling the page rather than panning a diagram that no longer
+ * needs it.
  */
 const PLATE_MIN_HEIGHT = 360;
-const PLATE_MAX_HEIGHT = 1800;
+const PLATE_MAX_HEIGHT = 3600;
 
 /** Vertical gap between the stacked sub-rows of one wrapped generation. */
 const SUBROW_GAP = 8;
