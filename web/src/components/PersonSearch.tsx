@@ -28,6 +28,15 @@ interface PersonSearchProps {
 
 const EMPTY: Query = {};
 
+/**
+ * The worked example: what the placeholders show, and what an empty submit
+ * runs. One constant so the two can never drift apart — they used to be three
+ * separate placeholder strings reading Erdős / Paul / Princeton, a combination
+ * matching nobody, since the fields are ANDed and Erdős took his doctorate at
+ * Eötvös Loránd.
+ */
+const EXAMPLE: Query = { family: 'Yau', given: 'Shing-Tung', school: 'Berkeley' };
+
 export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchProps) {
   const dataset = useDataset();
   const [query, setQuery] = useState<Query>(EMPTY);
@@ -50,14 +59,18 @@ export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchPr
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        setSubmitted(hasInput ? query : null);
+        // Submitting an empty form runs the example rather than doing nothing.
+        // The fields are filled in as well as searched, so the result list has
+        // a query above it that explains it and can be edited from.
+        if (!hasInput) setQuery(EXAMPLE);
+        setSubmitted(hasInput ? query : EXAMPLE);
       }}
     >
       <div className="field-grid">
         <div>
           <label htmlFor="family">Last / family name</label>
           <input
-            id="family" type="text" autoFocus={autoFocus} placeholder="Erdős"
+            id="family" type="text" autoFocus={autoFocus} placeholder={EXAMPLE.family}
             value={query.family ?? ''}
             onChange={(event) => update({ family: event.target.value })}
           />
@@ -65,7 +78,7 @@ export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchPr
         <div>
           <label htmlFor="given">First / given name</label>
           <input
-            id="given" type="text" placeholder="Paul"
+            id="given" type="text" placeholder={EXAMPLE.given}
             value={query.given ?? ''}
             onChange={(event) => update({ given: event.target.value })}
           />
@@ -73,7 +86,7 @@ export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchPr
         <div>
           <label htmlFor="school">School</label>
           <input
-            id="school" type="text" placeholder="Princeton"
+            id="school" type="text" placeholder={EXAMPLE.school}
             value={query.school ?? ''}
             onChange={(event) => update({ school: event.target.value })}
           />
@@ -121,7 +134,7 @@ export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchPr
       )}
 
       <div className="controls">
-        <button className="button" type="submit" disabled={!hasInput}>Search</button>
+        <button className="button" type="submit">Search</button>
         <button className="button quiet" type="button" onClick={() => setShowAdvanced((v) => !v)}>
           {showAdvanced ? 'Fewer fields' : 'More fields'}
         </button>
