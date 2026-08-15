@@ -7,6 +7,7 @@ consumes directly.
 
     export MGP_EMAIL=you@example.com
     python3 scripts/mgp_fetch.py probe            # confirm the endpoint shape
+    python3 scripts/mgp_fetch.py ceiling          # find the highest live id
     python3 scripts/mgp_fetch.py fetch --max-id 350000
 
 Credentials
@@ -79,6 +80,19 @@ ENDPOINT_CANDIDATES = [
 DEFAULT_WORKERS = 4
 DEFAULT_DELAY = 0.35  # seconds per worker between requests
 CHECKPOINT_EVERY = 250
+
+# `ceiling` asks whether a band of ids is populated, never whether one id is.
+# A single id proves nothing near the top of the range, where MGP's ids thin out
+# and a miss is ordinary; a band of 200 sampled at 20 points is decisive enough
+# to search on, and the whole search costs a few hundred requests.
+CEILING_WIDTH = 200
+CEILING_SAMPLES = 20
+
+# How far above the bisected answer to sweep before believing it, and at what
+# spacing. 100,000 at 5,000 is twenty more bands — cheap next to a fetch that
+# would otherwise stop short of the top and never say so.
+CEILING_CONFIRM = 100_000
+CEILING_STRIDE = 5_000
 
 
 class Auth:
@@ -268,6 +282,109 @@ def command_probe(args: argparse.Namespace, auth: Auth) -> int:
     return 0
 
 
+def command_ceiling(args: argparse.Namespace, auth: Auth) -> int:
+    """Find the highest id MGP currently answers for.
+
+    Ids run well above the number of people — the June 2026 dump referenced
+    346,142 — and `fetch --max-id` should sit above the top rather than be
+    guessed at, since everything past the end costs one 404 each and everything
+    short of it is silently missing people.
+
+    The search gallops upward by doubling until a band comes back empty, then
+    bisects the gap, then sweeps the stretch above what it found to confirm the
+    answer. The sweep is not ceremony: bisection assumes ids stop once and stay
+    stopped, and finds the *first* empty band rather than the last live one, so
+    a long unassigned stretch below the top is reported as the top. Simulated
+    against a database with a 30,000-id gap under its ceiling, bisection alone
+    answered 299,995 for a top of 346,142 — a quiet 46,000-person shortfall in
+    the fetch that follows. The sweep catches that and re-bisects above it.
+    """
+    fetcher = Fetcher(auth, args.endpoint, args.delay)
+    step = max(1, args.width // max(args.samples, 1))
+    probed = 0
+    highest = 0
+
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+
+        def live_in(start: int) -> int | None:
+            """Highest live id sampled in [start, start+width), or None if empty."""
+            nonlocal probed, highest
+            ids = [i for i in range(max(start, 1), start + args.width, step)]
+            probed += len(ids)
+            found = [
+                mgp_id
+                for mgp_id, status, payload in pool.map(fetcher.fetch_id, ids)
+                if status == 200 and as_person_record(payload) is not None
+            ]
+            if not found:
+                print(f"  {start:>9,} … empty", file=sys.stderr)
+                return None
+            highest = max(highest, *found)
+            print(f"  {start:>9,} … {len(found)}/{len(ids)} alive", file=sys.stderr)
+            return max(found)
+
+        print(f"Searching for the highest live id, in bands of {args.width}:", file=sys.stderr)
+        low = args.start
+        if live_in(low) is None:
+            print(
+                f"\nNothing alive in [{low:,}, {low + args.width:,}) — that band should be dense.\n"
+                "Check your credentials and rerun `probe` before trusting anything here.",
+                file=sys.stderr,
+            )
+            return 1
+
+        # Gallop. The ceiling is found as a bracket [low live, high empty), not
+        # as a point, so the doubling only has to overshoot once.
+        high = low
+        while high < args.limit:
+            high *= 2
+            if live_in(high) is None:
+                break
+            low = high
+        else:
+            print(f"\nStill alive at {high:,}, the --limit. Raise it and rerun.", file=sys.stderr)
+            return 1
+
+        while True:
+            while high - low > args.width:
+                mid = (low + high) // 2
+                if live_in(mid) is None:
+                    high = mid
+                else:
+                    low = mid
+
+            # Confirm, by walking the stretch above the candidate at a coarser
+            # stride. Scanning all of it rather than stopping at the first hit
+            # gives back a fresh live/empty bracket to bisect between.
+            print(f"  confirming the {args.confirm:,} ids above are empty:", file=sys.stderr)
+            last_live: int | None = None
+            next_empty: int | None = None
+            for probe in range(high + args.stride, high + args.confirm, args.stride):
+                if live_in(probe) is not None:
+                    last_live, next_empty = probe, None
+                elif last_live is not None and next_empty is None:
+                    next_empty = probe
+            if last_live is None:
+                break
+            low = last_live
+            high = next_empty if next_empty is not None else last_live + args.stride
+
+    # The bands are sampled, not swept, so the true top sits a little above the
+    # highest id actually seen. The suggestion carries margin for that: an id
+    # past the end costs one 404, an id short of it costs a person.
+    suggested = -(-int(highest * 1.05) // 10_000) * 10_000
+    print(
+        f"\nHighest live id seen: {highest:,}  ({probed:,} ids probed)\n"
+        f"Empty from {high:,} up, and at every {args.stride:,} ids across the "
+        f"{args.confirm:,} above that.\n"
+        f"If that looks low, MGP may have a gap wider than the sweep — rerun with a "
+        f"larger --confirm.\n\n"
+        f"Next:\n  python3 {sys.argv[0]} fetch --max-id {suggested}",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def command_fetch(args: argparse.Namespace, auth: Auth) -> int:
     out_path: Path = args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -396,6 +513,16 @@ def main() -> int:
     probe = sub.add_parser("probe", help="find the working endpoint shape")
     probe.add_argument("--probe-id", type=int, default=212291)
 
+    ceiling = sub.add_parser("ceiling", help="find the highest id MGP answers for")
+    ceiling.add_argument("--start", type=int, default=1000, help="a band start known to be populated")
+    ceiling.add_argument("--limit", type=int, default=8_000_000, help="give up above this id")
+    ceiling.add_argument("--width", type=int, default=CEILING_WIDTH)
+    ceiling.add_argument("--samples", type=int, default=CEILING_SAMPLES)
+    ceiling.add_argument("--confirm", type=int, default=CEILING_CONFIRM, help="how far above the candidate to sweep")
+    ceiling.add_argument("--stride", type=int, default=CEILING_STRIDE, help="spacing of the confirming sweep")
+    ceiling.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
+    ceiling.add_argument("--delay", type=float, default=DEFAULT_DELAY)
+
     fetch = sub.add_parser("fetch", help="fetch a range of ids")
     fetch.add_argument("--min-id", type=int, default=1)
     fetch.add_argument("--max-id", type=int, default=350000)
@@ -417,7 +544,8 @@ def main() -> int:
         password=os.environ.get("MGP_PASSWORD"),
         token=os.environ.get("MGP_TOKEN"),
     )
-    return command_probe(args, auth) if args.command == "probe" else command_fetch(args, auth)
+    commands = {"probe": command_probe, "ceiling": command_ceiling, "fetch": command_fetch}
+    return commands[args.command](args, auth)
 
 
 if __name__ == "__main__":
