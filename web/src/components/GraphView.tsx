@@ -42,8 +42,24 @@ interface GraphViewProps {
  * would otherwise render as an illegible strip. Past this point the view keeps
  * a readable scale, centres on the person being looked at, and lets the reader
  * pan, with "Fit all" available for the overview.
+ *
+ * Derived, not chosen: cytoscape hides a label once its rendered size falls
+ * under `min-zoomed-font-size`, which happens at exactly this zoom. The floor
+ * used to be a separate 0.42, comfortably *below* the point labels vanish, so
+ * the view that was supposed to stay legible held nothing but empty boxes.
  */
-const MIN_LEGIBLE_ZOOM = 0.42;
+const NODE_FONT_SIZE = 11;
+const MIN_ZOOMED_FONT_SIZE = 7;
+const MIN_LEGIBLE_ZOOM = MIN_ZOOMED_FONT_SIZE / NODE_FONT_SIZE;
+
+/**
+ * A lineage is tall and narrow: twenty generations stand about 2,200px high,
+ * which a fixed 700px plate can only ever show a third of. So the plate takes
+ * its height from the diagram, within limits, instead of the diagram being
+ * cropped to the plate.
+ */
+const PLATE_MIN_HEIGHT = 360;
+const PLATE_MAX_HEIGHT = 1800;
 
 /** Vertical gap between the stacked sub-rows of one wrapped generation. */
 const SUBROW_GAP = 8;
@@ -73,8 +89,11 @@ function wrapWideRanks(cy: Core, maxRowWidth: number): void {
   });
 
   const ranks = [...byRank.keys()].sort((a, b) => a - b);
+  // outerWidth/outerHeight, not width/height: the latter measure the label box
+  // before padding, and packing to those numbers drew every box overlapping its
+  // neighbour by the padding — 14px of it, which is most of the gap.
   const packedWidthOf = (row: cytoscape.NodeSingular[]) =>
-    row.reduce((sum, node) => sum + node.width() + WRAP_GAP, -WRAP_GAP);
+    row.reduce((sum, node) => sum + node.outerWidth() + WRAP_GAP, -WRAP_GAP);
 
   // If every generation already fits, dagre's layout is left exactly as it is —
   // its alignment of parents over their children is worth keeping.
@@ -91,42 +110,75 @@ function wrapWideRanks(cy: Core, maxRowWidth: number): void {
   for (const rank of ranks) {
     const row = byRank.get(rank)!.sort((a, b) => a.position('x') - b.position('x'));
     const baseY = rank + shift;
-    const widths = row.map((node) => node.width());
+    const widths = row.map((node) => node.outerWidth());
     const packedWidth = packedWidthOf(row);
 
     // Even sub-rows read better than a full one plus a short remainder.
     const subrowCount = Math.max(1, Math.ceil(packedWidth / maxRowWidth));
     const targetWidth = packedWidth / subrowCount;
 
+    // A row's width counts the gaps *between* its nodes, so the running total
+    // has to as well. Adding a trailing gap to each meant a rank that fits
+    // still overflowed its target by exactly one gap on the final node, which
+    // broke the last node of every rank onto a line of its own — most visibly
+    // the second of somebody's two advisors.
     const subrows: cytoscape.NodeSingular[][] = [];
     let current: cytoscape.NodeSingular[] = [];
     let currentWidth = 0;
     row.forEach((node, position) => {
-      const width = widths[position] + WRAP_GAP;
-      if (current.length > 0 && currentWidth + width > targetWidth) {
+      const width = widths[position];
+      const extended = current.length === 0 ? width : currentWidth + WRAP_GAP + width;
+      if (current.length > 0 && extended > targetWidth) {
         subrows.push(current);
-        current = [];
-        currentWidth = 0;
+        current = [node];
+        currentWidth = width;
+      } else {
+        current.push(node);
+        currentWidth = extended;
       }
-      current.push(node);
-      currentWidth += width;
     });
     if (current.length > 0) subrows.push(current);
 
-    const rowHeight = Math.max(...row.map((node) => node.height())) + SUBROW_GAP;
+    const rowHeight = Math.max(...row.map((node) => node.outerHeight())) + SUBROW_GAP;
     subrows.forEach((subrow, position) => {
-      const subrowWidth = subrow.reduce((sum, node) => sum + node.width() + WRAP_GAP, -WRAP_GAP);
+      const subrowWidth = subrow.reduce((sum, node) => sum + node.outerWidth() + WRAP_GAP, -WRAP_GAP);
       let cursor = axis - subrowWidth / 2;
       const y = baseY + position * rowHeight;
       for (const node of subrow) {
-        node.position({ x: cursor + node.width() / 2, y });
-        cursor += node.width() + WRAP_GAP;
+        node.position({ x: cursor + node.outerWidth() / 2, y });
+        cursor += node.outerWidth() + WRAP_GAP;
       }
     });
 
     // Push every later generation down to make room for the extra sub-rows.
     shift += (subrows.length - 1) * rowHeight;
   }
+}
+
+/**
+ * Hold the drawing against the edges of the plate.
+ *
+ * Centring on the focus node is right when the whole graph fits, but a lineage
+ * puts that node at the very bottom of the drawing, so centring it left the
+ * diagram in the top half of the plate and empty paper below. Panning is
+ * clamped to the drawing's own bounds instead: an axis that overflows keeps the
+ * plate covered, an axis that fits is centred on it.
+ */
+function clampPan(cy: Core, padding: number): void {
+  const box = cy.nodes().boundingBox();
+  if (box.w === 0 && box.h === 0) return;
+  const zoom = cy.zoom();
+  const pan = cy.pan();
+
+  const along = (min: number, max: number, viewport: number, current: number) => {
+    if ((max - min) * zoom + padding * 2 <= viewport) return (viewport - (min + max) * zoom) / 2;
+    return Math.min(Math.max(current, viewport - padding - max * zoom), padding - min * zoom);
+  };
+
+  cy.pan({
+    x: along(box.x1, box.x2, cy.width(), pan.x),
+    y: along(box.y1, box.y2, cy.height(), pan.y),
+  });
 }
 
 /** Cytoscape draws to a canvas, so it needs resolved colours, not CSS variables. */
@@ -165,6 +217,7 @@ export function GraphView({
 }: GraphViewProps) {
   const dataset = useDataset();
   const container = useRef<HTMLDivElement>(null);
+  const frame = useRef<HTMLDivElement>(null);
   const instance = useRef<Core | null>(null);
   // Held in refs so that changing a handler never forces the graph to rebuild.
   const selectHandler = useRef(onSelect);
@@ -244,7 +297,7 @@ export function GraphView({
             label: 'data(label)',
             color: palette.ink,
             'font-family': "Charter, 'Bitstream Charter', 'Sitka Text', Cambria, Georgia, serif",
-            'font-size': 11,
+            'font-size': NODE_FONT_SIZE,
             'text-valign': 'center',
             'text-halign': 'center',
             'text-wrap': 'ellipsis',
@@ -252,7 +305,7 @@ export function GraphView({
             // Below ~7px on screen a name is grey noise that obscures the shape
             // of the graph. Cytoscape drops the text entirely at that point, so
             // a dense view reads as clean boxes and names return on zoom in.
-            'min-zoomed-font-size': 7,
+            'min-zoomed-font-size': MIN_ZOOMED_FONT_SIZE,
             width: 'label',
             height: 20,
             padding: '7px',
@@ -329,6 +382,20 @@ export function GraphView({
     // strip once the fit scales it back down.
     const viewportWidth = cy.width() || 900;
     wrapWideRanks(cy, Math.max(640, Math.min(viewportWidth - 80, 1400)));
+
+    // Give the plate the height this particular diagram needs, before fitting
+    // into it. Height is the only dimension free to move — width belongs to
+    // the page — so a tall lineage grows downward rather than being cropped.
+    if (frame.current) {
+      const box = cy.nodes().boundingBox();
+      const usableWidth = Math.max(viewportWidth - 80, 1);
+      const zoom = Math.max(Math.min(1, usableWidth / Math.max(box.w, 1)), MIN_LEGIBLE_ZOOM);
+      const needed = box.h * zoom + 80;
+      const height = Math.max(PLATE_MIN_HEIGHT, Math.min(needed, PLATE_MAX_HEIGHT));
+      frame.current.style.height = `${Math.round(height)}px`;
+      cy.resize();
+    }
+
     cy.fit(undefined, 40);
 
     // Fitting a very wide generation shrinks the labels past readability, so
@@ -339,6 +406,7 @@ export function GraphView({
       const focus = focusRef.current !== undefined ? cy.getElementById(`n${focusRef.current}`) : null;
       if (focus && focus.nonempty()) cy.center(focus);
       else cy.center();
+      clampPan(cy, 40);
     }
 
     cy.on('tap', 'node', (event) => {
@@ -365,10 +433,11 @@ export function GraphView({
     const focus = focusIndex !== undefined ? cy.getElementById(`n${focusIndex}`) : null;
     if (focus && focus.nonempty()) cy.center(focus);
     else cy.center();
+    clampPan(cy, 40);
   };
 
   return (
-    <div className="plate-frame">
+    <div className="plate-frame" ref={frame}>
       <div className="plate-canvas" ref={container} />
       {nodes.length > 0 && (
         <div className="plate-tools">
