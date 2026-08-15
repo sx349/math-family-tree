@@ -142,7 +142,7 @@ class Fetcher:
         self.auth, self.endpoint, self.delay, self.timeout = auth, endpoint, delay, timeout
         self.session = requests.Session()
 
-    def get(self, url: str, attempts: int = 4) -> tuple[int, Any]:
+    def get(self, url: str, attempts: int = 4, label: str = "") -> tuple[int, Any]:
         """GET with backoff on rate limits, server errors, and token expiry.
 
         Four attempts, not more: some MGP records make their API return 502
@@ -170,7 +170,7 @@ class Fetcher:
             if response.status_code == 429 or response.status_code >= 500:
                 wait = min(2 ** attempt, 60) + random.random()
                 print(
-                    f"[warn] HTTP {response.status_code}, backing off {wait:.0f}s",
+                    f"[warn] {label}HTTP {response.status_code}, backing off {wait:.0f}s",
                     file=sys.stderr,
                 )
                 time.sleep(wait)
@@ -186,7 +186,9 @@ class Fetcher:
     def fetch_id(self, mgp_id: int) -> tuple[int, int, Any]:
         if self.delay:
             time.sleep(self.delay)
-        status, payload = self.get(f"{BASE_URL}{self.endpoint.format(id=mgp_id)}")
+        status, payload = self.get(
+            f"{BASE_URL}{self.endpoint.format(id=mgp_id)}", label=f"id {mgp_id}: "
+        )
         return mgp_id, status, payload
 
 
