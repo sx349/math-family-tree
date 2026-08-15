@@ -30,13 +30,6 @@ export interface NeighborhoodOptions {
   descendants: number;
   /** Descendant generations are admitted whole only while the total fits this. */
   nodeBudget: number;
-  /**
-   * Rounds of climbing on top of the walks above. Each round adds the advisors
-   * of *every* node already shown, which is a different reach from raising
-   * `ancestors`: that only ever walks up from the root, so it never picks up
-   * the other advisors of someone's students.
-   */
-  climb?: number;
   /** Overflow handles the reader has opened, as `${nodeIndex}:${direction}`. */
   expanded?: ReadonlySet<string>;
   /** Ceiling on how many nodes a single overflow handle may add. */
@@ -70,10 +63,8 @@ export interface Neighborhood {
   nextRingSize: number;
   /** True when the budget, not the requested depth, ended the expansion. */
   budgetLimited: boolean;
-  /** Climb rounds actually applied. */
-  climbed: number;
-  /** Nodes the next climb round would have added, when the budget refused it. */
-  climbRefused: number;
+  /** Nodes the next advisor generation would have added. */
+  nextAncestorRing: number;
 }
 
 /**
@@ -84,10 +75,22 @@ export interface Neighborhood {
 export const DEFAULT_NODE_BUDGET = 200;
 export const DEFAULT_EXPANSION_BUDGET = 50;
 
-/** Going up is cheap enough that the ceiling can be generous. */
-export const MAX_ANCESTORS = 12;
-/** Going down is not. */
+/**
+ * Neighbourhood ceilings. Both directions stay local here — the view is for
+ * seeing how someone sits among the people around them.
+ */
+export const MAX_ANCESTORS = 5;
 export const MAX_DESCENDANTS = 5;
+
+/**
+ * The lineage view goes much further up, but not indefinitely. A median
+ * lineage in the snapshot runs 36 generations and 220 people, which draws as a
+ * column far taller than it is wide and stops being readable long before it
+ * runs out. Twenty generations reaches the eighteenth century for most people
+ * while keeping the diagram a shape rather than a strip.
+ */
+export const MAX_LINEAGE = 20;
+export const DEFAULT_LINEAGE = 8;
 
 export function overflowKey(source: number, direction: Direction): string {
   return `${source}:${direction}`;
@@ -98,7 +101,10 @@ export function neighborhood(
   root: number,
   options: NeighborhoodOptions,
 ): Neighborhood {
-  const wantUp = Math.max(0, Math.min(options.ancestors, MAX_ANCESTORS));
+  // MAX_LINEAGE, not MAX_ANCESTORS: the latter is the neighbourhood view's own
+  // ceiling, enforced by its slider. Clamping here to 5 silently capped the
+  // lineage view at five generations however far its control was dragged.
+  const wantUp = Math.max(0, Math.min(options.ancestors, MAX_LINEAGE));
   const wantDown = Math.max(0, Math.min(options.descendants, MAX_DESCENDANTS));
   const expanded = options.expanded ?? new Set<string>();
   const expansionBudget = options.expansionBudget ?? DEFAULT_EXPANSION_BUDGET;
@@ -139,36 +145,10 @@ export function neighborhood(
     return { reached, refused: 0 };
   };
 
-  // Ancestors first and in full: they are bounded, and they are the half of the
-  // diagram a reader is most likely to have set a deep number for.
-  const up = walk((index) => dataset.advisors(index), wantUp, 'ancestor', Number.MAX_SAFE_INTEGER);
+  // Ancestors first: at neighbourhood depths they are small enough that the
+  // budget never binds, but the lineage view walks far enough up that it does.
+  const up = walk((index) => dataset.advisors(index), wantUp, 'ancestor', options.nodeBudget);
   const down = walk((index) => dataset.students(index), wantDown, 'descendant', options.nodeBudget);
-
-  // Climbing lifts the whole diagram a generation at a time rather than
-  // extending one walk, so it reaches people the sliders cannot: the other
-  // advisors of your students, and of their students.
-  let climbed = 0;
-  let climbRefused = 0;
-  for (let round = 1; round <= (options.climb ?? 0); round++) {
-    const ring = new Set<number>();
-    for (const index of admitted.keys()) {
-      for (const advisor of dataset.advisors(index)) {
-        if (!admitted.has(advisor)) ring.add(advisor);
-      }
-    }
-    if (ring.size === 0) break;
-    if (admitted.size + ring.size > options.nodeBudget) {
-      climbRefused = ring.size;
-      break;
-    }
-    for (const index of ring) {
-      // `depth` counts rounds here rather than generations from the root; it is
-      // used only for ordering and for the descendant frontier check, neither
-      // of which looks at climbed nodes.
-      admitted.set(index, { index, depth: round, relation: 'ancestor' });
-    }
-    climbed = round;
-  }
 
   // ------------------------------------------------------------ overflow
   // Handles mark what the budget cut, never what the requested depth excluded:
@@ -231,9 +211,8 @@ export function neighborhood(
     descendantsReached: down.reached,
     requestedDescendants: wantDown,
     nextRingSize: down.refused,
-    budgetLimited: down.refused > 0,
-    climbed,
-    climbRefused,
+    budgetLimited: down.refused > 0 || up.refused > 0,
+    nextAncestorRing: up.refused,
   };
 }
 
