@@ -8,10 +8,11 @@ import {
   DEFAULT_EXPANSION_BUDGET,
   DEFAULT_LINEAGE,
   DEFAULT_NODE_BUDGET,
+  LINEAGE_NODE_BUDGET,
   MAX_ANCESTORS,
   MAX_DESCENDANTS,
   MAX_LINEAGE,
-  directionProfile,
+  drawnCounts,
   neighborhood,
 } from '../lib/neighborhood';
 
@@ -62,15 +63,6 @@ export function PersonPage() {
     };
   }, [dataset, index]);
 
-  const upProfile = useMemo(
-    () => (index < 0 ? [] : directionProfile(dataset, index, 'up', MAX_LINEAGE)),
-    [dataset, index],
-  );
-  const downProfile = useMemo(
-    () => (index < 0 ? [] : directionProfile(dataset, index, 'down', MAX_DESCENDANTS)),
-    [dataset, index],
-  );
-
   const view = useMemo(
     () =>
       index < 0
@@ -78,12 +70,17 @@ export function PersonPage() {
         : neighborhood(dataset, index, {
             ancestors: mode === 'lineage' ? lineage : ancestors,
             descendants: mode === 'lineage' ? 0 : descendants,
-            nodeBudget: DEFAULT_NODE_BUDGET,
+            nodeBudget: mode === 'lineage' ? LINEAGE_NODE_BUDGET : DEFAULT_NODE_BUDGET,
             expanded,
             expansionBudget: DEFAULT_EXPANSION_BUDGET,
           }),
     [dataset, index, mode, ancestors, descendants, lineage, expanded],
   );
+
+  // Counted off the diagram itself. Showing what lies within reach instead put
+  // a number beside the slider that the picture below it contradicted whenever
+  // anything stopped the walk short.
+  const drawn = view ? drawnCounts(view) : { up: 0, down: 0 };
 
   if (index < 0) {
     return (
@@ -208,9 +205,7 @@ export function PersonPage() {
                 onChange={(event) => setAncestors(Number(event.target.value))}
               />
               <strong>{ancestors}</strong>
-              <span className="faint small num">
-                {upProfile[ancestors] !== undefined && `· ${upProfile[ancestors].toLocaleString()}`}
-              </span>
+              <span className="faint small num">· {drawn.up.toLocaleString()}</span>
             </div>
 
             <div className="group">
@@ -221,9 +216,7 @@ export function PersonPage() {
                 onChange={(event) => setDescendants(Number(event.target.value))}
               />
               <strong>{descendants}</strong>
-              <span className="faint small num">
-                {downProfile[descendants] !== undefined && `· ${downProfile[descendants].toLocaleString()}`}
-              </span>
+              <span className="faint small num">· {drawn.down.toLocaleString()}</span>
             </div>
           </>
         ) : (
@@ -235,9 +228,7 @@ export function PersonPage() {
               onChange={(event) => setLineage(Number(event.target.value))}
             />
             <strong>{lineage}</strong>
-            <span className="faint small num">
-              {upProfile[lineage] !== undefined && `· ${upProfile[lineage].toLocaleString()}`}
-            </span>
+            <span className="faint small num">· {drawn.up.toLocaleString()}</span>
           </div>
         )}
 

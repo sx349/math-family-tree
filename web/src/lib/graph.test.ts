@@ -13,7 +13,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { Dataset } from './dataset';
 import { lowestCommonAncestors } from './lca';
-import { MAX_LINEAGE, directionProfile, neighborhood, overflowKey } from './neighborhood';
+import type { Neighborhood } from './neighborhood';
+import { LINEAGE_NODE_BUDGET, MAX_LINEAGE, neighborhood, overflowKey } from './neighborhood';
 import { fold, search } from './search';
 
 const DATA_DIR = path.resolve(__dirname, '../../../data/web');
@@ -104,10 +105,28 @@ describe('neighborhood', () => {
   // between the two columns is why the directions cannot share a control.
   it('matches the independently computed profiles in both directions', () => {
     const hilbert = dataset.indexOfId(HILBERT);
-    expect(directionProfile(dataset, hilbert, 'up', 5)).toEqual([0, 2, 6, 12, 19, 30]);
-    expect(directionProfile(dataset, hilbert, 'down', 5)).toEqual(
-      [0, 79, 454, 2249, 8239, 20940],
-    );
+
+    /** Running total of admitted nodes per generation, root excluded. */
+    const cumulative = (result: Neighborhood, relation: 'ancestor' | 'descendant') => {
+      const perDepth = new Array(6).fill(0);
+      for (const node of result.nodes) if (node.relation === relation) perDepth[node.depth]++;
+      let running = 0;
+      return perDepth.map((n) => (running += n));
+    };
+
+    const up = neighborhood(dataset, hilbert, {
+      ancestors: 5,
+      descendants: 0,
+      nodeBudget: Number.MAX_SAFE_INTEGER,
+    });
+    expect(cumulative(up, 'ancestor')).toEqual([0, 2, 6, 12, 19, 30]);
+
+    const down = neighborhood(dataset, hilbert, {
+      ancestors: 0,
+      descendants: 5,
+      nodeBudget: Number.MAX_SAFE_INTEGER,
+    });
+    expect(cumulative(down, 'descendant')).toEqual([0, 79, 454, 2249, 8239, 20940]);
   });
 
   it('shows exactly advisors and students at one generation each', () => {
@@ -166,13 +185,20 @@ describe('neighborhood', () => {
   });
 
   it('never admits a partial generation', () => {
-    const result = neighborhood(dataset, dataset.indexOfId(HILBERT), {
+    const hilbert = dataset.indexOfId(HILBERT);
+    const limited = neighborhood(dataset, hilbert, {
       ancestors: 0,
       descendants: 5,
       nodeBudget: 200,
     });
-    const profile = directionProfile(dataset, dataset.indexOfId(HILBERT), 'down', 5);
-    expect(result.nodes.length).toBe(profile[result.descendantsReached] + 1);
+    // What the budget allowed in must be exactly the generations it reached,
+    // whole — identical to asking for that depth with no budget at all.
+    const whole = neighborhood(dataset, hilbert, {
+      ancestors: 0,
+      descendants: limited.descendantsReached,
+      nodeBudget: Number.MAX_SAFE_INTEGER,
+    });
+    expect(limited.nodes.map((n) => n.index).sort()).toEqual(whole.nodes.map((n) => n.index).sort());
   });
 
   it('offers no handles when the requested depth was reached', () => {
@@ -212,8 +238,6 @@ describe('neighborhood', () => {
   });
 
   it('caps the lineage view by budget as well as by generations', () => {
-    // A median lineage runs 36 generations and 220 people, so asking for the
-    // full depth must stop on the budget rather than drawing a 200-row column.
     const result = neighborhood(dataset, dataset.indexOfId(DENG), {
       ancestors: MAX_LINEAGE,
       descendants: 0,
@@ -222,6 +246,21 @@ describe('neighborhood', () => {
     expect(result.nodes.length).toBeLessThanOrEqual(60);
     expect(result.nextAncestorRing).toBeGreaterThan(0);
     expect(result.budgetLimited).toBe(true);
+  });
+
+  it('lets the generation cap, not the budget, govern the lineage view', () => {
+    // The widest lineage in the snapshot reaches 438 people within MAX_LINEAGE
+    // generations. If the budget ever binds at the shipped setting, the slider
+    // stops meaning what it says — which is exactly the bug this pins down.
+    for (const id of [DENG, HILBERT, GAUSS, GUDERMANN]) {
+      const result = neighborhood(dataset, dataset.indexOfId(id), {
+        ancestors: MAX_LINEAGE,
+        descendants: 0,
+        nodeBudget: LINEAGE_NODE_BUDGET,
+      });
+      expect(result.nextAncestorRing).toBe(0);
+      expect(result.ancestorsReached).toBeLessThanOrEqual(MAX_LINEAGE);
+    }
   });
 
   it('draws non-tree edges between admitted nodes', () => {

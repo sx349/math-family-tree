@@ -92,6 +92,17 @@ export const MAX_DESCENDANTS = 5;
 export const MAX_LINEAGE = 20;
 export const DEFAULT_LINEAGE = 8;
 
+/**
+ * Lineage gets its own budget, because the neighbourhood one governed a view it
+ * was never measured for. Twenty generations of advisors reaches 438 people at
+ * the very widest, measured over all 307,559 people in the snapshot who have an
+ * advisor — median 127, p99 303. At 200 the budget cut 68,890 of them short of
+ * the depth their slider asked for; at 500 it cuts nobody, which leaves the
+ * generation cap as the single thing limiting this view. Two limits where only
+ * one is meant to bind is how the diagram came to disagree with its own label.
+ */
+export const LINEAGE_NODE_BUDGET = 500;
+
 export function overflowKey(source: number, direction: Direction): string {
   return `${source}:${direction}`;
 }
@@ -216,41 +227,13 @@ export function neighborhood(
   };
 }
 
-/**
- * How many people lie within each generation in one direction, for telling the
- * reader what a deeper setting would cost.
- */
-export function directionProfile(
-  dataset: Dataset,
-  root: number,
-  direction: Direction,
-  maxDepth: number,
-): number[] {
-  const step = direction === 'up'
-    ? (index: number) => dataset.advisors(index)
-    : (index: number) => dataset.students(index);
-
-  const seen = new Set<number>([root]);
-  const counts = [0];
-  let frontier = [root];
-
-  for (let generation = 1; generation <= maxDepth; generation++) {
-    const next: number[] = [];
-    for (const index of frontier) {
-      for (const neighbour of step(index)) {
-        if (!seen.has(neighbour)) {
-          seen.add(neighbour);
-          next.push(neighbour);
-        }
-      }
-    }
-    counts.push(seen.size - 1);
-    frontier = next;
-    // Pad, so the caller can index by depth without a bounds check.
-    if (next.length === 0) {
-      while (counts.length <= maxDepth) counts.push(seen.size - 1);
-      break;
-    }
+/** How many people the result actually draws in each direction. */
+export function drawnCounts(result: Neighborhood): { up: number; down: number } {
+  let up = 0;
+  let down = 0;
+  for (const node of result.nodes) {
+    if (node.relation === 'ancestor') up++;
+    else if (node.relation === 'descendant') down++;
   }
-  return counts;
+  return { up, down };
 }
