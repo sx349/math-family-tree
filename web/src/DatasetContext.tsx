@@ -61,10 +61,6 @@ export function DatasetProvider({ children }: { children: ReactNode }) {
           <div className="progress" role="progressbar" aria-valuenow={percent}>
             <div style={{ width: `${percent}%` }} />
           </div>
-          <p className="small faint" style={{ margin: 0, maxWidth: '44ch' }}>
-            The whole advisor graph loads once — after that every search and every diagram is
-            drawn in your browser, with nothing further fetched.
-          </p>
         </div>
       </div>
     );

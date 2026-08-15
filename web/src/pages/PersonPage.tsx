@@ -6,13 +6,23 @@ import { useDataset } from '../DatasetContext';
 import type { PersonDetail } from '../lib/dataset';
 import {
   DEFAULT_EXPANSION_BUDGET,
+  DEFAULT_LINEAGE,
   DEFAULT_NODE_BUDGET,
-  MAX_DEPTH,
-  depthProfile,
+  LINEAGE_NODE_BUDGET,
+  MAX_ANCESTORS,
+  MAX_DESCENDANTS,
+  MAX_LINEAGE,
+  drawnCounts,
   neighborhood,
 } from '../lib/neighborhood';
 
-const BUDGET_CHOICES = [75, 150, 300, 600];
+/**
+ * Two questions, two diagrams. Neighbourhood asks how someone sits among the
+ * people around them, which needs both directions and stays local. Lineage
+ * asks who they descend from, which needs one direction and goes far — and
+ * mixing the two produced a view that answered neither well.
+ */
+type Mode = 'neighbourhood' | 'lineage';
 
 export function PersonPage() {
   const dataset = useDataset();
@@ -20,8 +30,10 @@ export function PersonPage() {
   const { id } = useParams<{ id: string }>();
   const index = dataset.indexOfId(Number(id));
 
-  const [depth, setDepth] = useState(1);
-  const [budget, setBudget] = useState(DEFAULT_NODE_BUDGET);
+  const [mode, setMode] = useState<Mode>('neighbourhood');
+  const [ancestors, setAncestors] = useState(1);
+  const [descendants, setDescendants] = useState(1);
+  const [lineage, setLineage] = useState(DEFAULT_LINEAGE);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<PersonDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(true);
@@ -30,7 +42,10 @@ export function PersonPage() {
   // across a navigation would expand the wrong node.
   useEffect(() => {
     setExpanded(new Set());
-    setDepth(1);
+    setMode('neighbourhood');
+    setAncestors(1);
+    setDescendants(1);
+    setLineage(DEFAULT_LINEAGE);
   }, [index]);
 
   useEffect(() => {
@@ -48,23 +63,24 @@ export function PersonPage() {
     };
   }, [dataset, index]);
 
-  const profile = useMemo(
-    () => (index < 0 ? [] : depthProfile(dataset, index, MAX_DEPTH)),
-    [dataset, index],
-  );
-
   const view = useMemo(
     () =>
       index < 0
         ? null
         : neighborhood(dataset, index, {
-            depth,
-            nodeBudget: budget,
+            ancestors: mode === 'lineage' ? lineage : ancestors,
+            descendants: mode === 'lineage' ? 0 : descendants,
+            nodeBudget: mode === 'lineage' ? LINEAGE_NODE_BUDGET : DEFAULT_NODE_BUDGET,
             expanded,
             expansionBudget: DEFAULT_EXPANSION_BUDGET,
           }),
-    [dataset, index, depth, budget, expanded],
+    [dataset, index, mode, ancestors, descendants, lineage, expanded],
   );
+
+  // Counted off the diagram itself. Showing what lies within reach instead put
+  // a number beside the slider that the picture below it contradicted whenever
+  // anything stopped the walk short.
+  const drawn = view ? drawnCounts(view) : { up: 0, down: 0 };
 
   if (index < 0) {
     return (
@@ -99,15 +115,13 @@ export function PersonPage() {
       <p className="record-id">
         MGP <a href={dataset.mgpUrl(index)} target="_blank" rel="noreferrer">{person.id}</a>
         {person.mscLabel && ` · ${person.mscLabel}`}
-        {person.isStub && ' · name only in this snapshot'}
       </p>
 
       {person.isStub ? (
         <div className="notice">
-          MGP references this person as an advisor or student, but our snapshot does not hold
-          their own record — only their name and their links. Their{' '}
-          <a href={dataset.mgpUrl(index)} target="_blank" rel="noreferrer">MGP page</a> will have
-          the full entry.
+          No record for this person in the snapshot — only their name and who they connect to.{' '}
+          <a href={dataset.mgpUrl(index)} target="_blank" rel="noreferrer">Their MGP page</a>{' '}
+          may have more.
         </div>
       ) : (
         <ul className="facts" style={{ marginBottom: 8 }}>
@@ -163,83 +177,95 @@ export function PersonPage() {
 
       <div className="controls">
         <div className="group">
-          <label htmlFor="depth">Depth</label>
-          <input
-            id="depth"
-            type="range"
-            min={1}
-            max={MAX_DEPTH}
-            value={depth}
-            style={{ width: 120 }}
-            onChange={(event) => setDepth(Number(event.target.value))}
-          />
-          <strong>{depth}</strong>
-          <span className="muted small">
-            {profile[depth] !== undefined && `· ${profile[depth].toLocaleString()} within reach`}
-          </span>
-        </div>
-
-        <div className="group">
-          <label htmlFor="budget">Max nodes</label>
-          <select
-            id="budget"
-            value={budget}
-            style={{ width: 'auto' }}
-            onChange={(event) => setBudget(Number(event.target.value))}
+          <button
+            className={mode === 'neighbourhood' ? 'button' : 'button quiet'}
+            type="button"
+            aria-pressed={mode === 'neighbourhood'}
+            onClick={() => setMode('neighbourhood')}
           >
-            {BUDGET_CHOICES.map((choice) => (
-              <option key={choice} value={choice}>
-                {choice}
-              </option>
-            ))}
-          </select>
+            Neighbourhood
+          </button>
+          <button
+            className={mode === 'lineage' ? 'button' : 'button quiet'}
+            type="button"
+            aria-pressed={mode === 'lineage'}
+            onClick={() => setMode('lineage')}
+          >
+            Lineage
+          </button>
         </div>
 
-        {expanded.size > 0 && (
-          <button className="button" type="button" onClick={() => setExpanded(new Set())}>
-            Collapse expansions
-          </button>
+        {mode === 'neighbourhood' ? (
+          <>
+            <div className="group">
+              <label htmlFor="ancestors">Advisors</label>
+              <input
+                id="ancestors" type="range" min={0} max={MAX_ANCESTORS} value={ancestors}
+                style={{ width: 100 }}
+                onChange={(event) => setAncestors(Number(event.target.value))}
+              />
+              <strong>{ancestors}</strong>
+              <span className="faint small num">· {drawn.up.toLocaleString()}</span>
+            </div>
+
+            <div className="group">
+              <label htmlFor="descendants">Students</label>
+              <input
+                id="descendants" type="range" min={0} max={MAX_DESCENDANTS} value={descendants}
+                style={{ width: 100 }}
+                onChange={(event) => setDescendants(Number(event.target.value))}
+              />
+              <strong>{descendants}</strong>
+              <span className="faint small num">· {drawn.down.toLocaleString()}</span>
+            </div>
+          </>
+        ) : (
+          <div className="group">
+            <label htmlFor="lineage">Generations</label>
+            <input
+              id="lineage" type="range" min={1} max={MAX_LINEAGE} value={lineage}
+              style={{ width: 150 }}
+              onChange={(event) => setLineage(Number(event.target.value))}
+            />
+            <strong>{lineage}</strong>
+            <span className="faint small num">· {drawn.up.toLocaleString()}</span>
+          </div>
         )}
 
-        <span className="muted small">
-          Showing {view?.nodes.length.toLocaleString()} people
-        </span>
+        {expanded.size > 0 && (
+          <button className="button quiet" type="button" onClick={() => setExpanded(new Set())}>
+            Reset
+          </button>
+        )}
       </div>
 
-      {view?.budgetLimited && (
+      {view && view.nextAncestorRing > 0 && (
         <div className="notice warn">
-          Stopped at depth <strong>{view.depthReached}</strong> of the {depth} requested: the next
-          generation would add {view.nextRingSize.toLocaleString()} more people, over the{' '}
-          {budget}-node limit. Open a <em>+N more</em> handle to follow a specific branch, or
-          raise the limit.
+          Stopped at <strong>{view.ancestorsReached}</strong>{' '}
+          {view.ancestorsReached === 1 ? 'generation' : 'generations'} of advisors: the next
+          would add {view.nextAncestorRing.toLocaleString()} more people.
         </div>
       )}
 
-      <figure className="plate">
-        <GraphView
-          nodes={nodes}
-          edges={view?.edges ?? []}
-          overflows={view?.overflows ?? []}
-          onSelect={(target) => navigate(`/person/${dataset.ids[target]}`)}
-          onExpand={toggleExpand}
-          focusIndex={index}
-          emptyMessage="No advisors or students recorded for this person."
-        />
-        <figcaption className="plate-caption">
-          <span className="fignum">Figure 1.</span>{' '}
-          {dataset.displayName(index)} within {view?.depthReached === 1 ? 'one generation' : `${view?.depthReached} generations`},
-          advisors above and students below. Arrows run from advisor to student.
-          Ruled in oxblood is the person in question; dashed is a name we hold without a record.
-          <strong> +N</strong> marks hidden advisors or students — click one to open that branch,
-          or click any person to go to their page.
-        </figcaption>
-      </figure>
+      {view && view.nextRingSize > 0 && (
+        <div className="notice warn">
+          Stopped at <strong>{view.descendantsReached}</strong>{' '}
+          {view.descendantsReached === 1 ? 'generation' : 'generations'} of students of the{' '}
+          {view.requestedDescendants} requested: the next would add{' '}
+          {view.nextRingSize.toLocaleString()} more people.
+        </div>
+      )}
 
-      <div className="legend">
-        <span><i className="swatch target" /> this person</span>
-        <span><i className="swatch" /> advisors, students and relations</span>
-        <span><i className="swatch stub" /> name only</span>
-      </div>
+      <GraphView
+        nodes={nodes}
+        edges={view?.edges ?? []}
+        overflows={view?.overflows ?? []}
+        onSelect={(target) => navigate(`/person/${dataset.ids[target]}`)}
+        onExpand={toggleExpand}
+        focusIndex={index}
+        emptyMessage="No advisors or students recorded for this person."
+      />
+
     </div>
   );
 }

@@ -7,6 +7,7 @@ consumes directly.
 
     export MGP_EMAIL=you@example.com
     python3 scripts/mgp_fetch.py probe            # confirm the endpoint shape
+    python3 scripts/mgp_fetch.py ceiling          # find the highest live id
     python3 scripts/mgp_fetch.py fetch --max-id 350000
 
 Credentials
@@ -80,6 +81,19 @@ DEFAULT_WORKERS = 4
 DEFAULT_DELAY = 0.35  # seconds per worker between requests
 CHECKPOINT_EVERY = 250
 
+# `ceiling` asks whether a band of ids is populated, never whether one id is.
+# A single id proves nothing near the top of the range, where MGP's ids thin out
+# and a miss is ordinary; a band of 200 sampled at 20 points is decisive enough
+# to search on, and the whole search costs a few hundred requests.
+CEILING_WIDTH = 200
+CEILING_SAMPLES = 20
+
+# How far above the bisected answer to sweep before believing it, and at what
+# spacing. 100,000 at 5,000 is twenty more bands — cheap next to a fetch that
+# would otherwise stop short of the top and never say so.
+CEILING_CONFIRM = 100_000
+CEILING_STRIDE = 5_000
+
 
 class Auth:
     """Holds the access token and transparently refreshes it when it expires."""
@@ -128,7 +142,7 @@ class Fetcher:
         self.auth, self.endpoint, self.delay, self.timeout = auth, endpoint, delay, timeout
         self.session = requests.Session()
 
-    def get(self, url: str, attempts: int = 6) -> tuple[int, Any]:
+    def get(self, url: str, attempts: int = 4, label: str = "") -> tuple[int, Any]:
         """GET with backoff on rate limits, server errors, and token expiry."""
         for attempt in range(attempts):
             generation = self.auth.generation
@@ -147,10 +161,23 @@ class Fetcher:
                 continue
             if response.status_code == 404:
                 return 404, None
+            # MGP answers a request for an id that does not exist with 502
+            # rather than 404 — 206, 323 and 415 do it every time, and MGP's
+            # own web pages say those ids are not in the database. About 30,000
+            # of the 348,500 ids in the range are absent, so retrying them
+            # costs hours and finds nothing. Reported as 404 so the caller
+            # counts them under `missing`.
+            #
+            # An outage looks identical, which is what --recheck-missing is
+            # for: re-asking everything written off as absent is one request
+            # each, and settles it.
+            if response.status_code == 502:
+                print(f"[warn] {label}HTTP 502, recording as absent", file=sys.stderr)
+                return 404, None
             if response.status_code == 429 or response.status_code >= 500:
                 wait = min(2 ** attempt, 60) + random.random()
                 print(
-                    f"[warn] HTTP {response.status_code}, backing off {wait:.0f}s",
+                    f"[warn] {label}HTTP {response.status_code}, backing off {wait:.0f}s",
                     file=sys.stderr,
                 )
                 time.sleep(wait)
@@ -166,7 +193,9 @@ class Fetcher:
     def fetch_id(self, mgp_id: int) -> tuple[int, int, Any]:
         if self.delay:
             time.sleep(self.delay)
-        status, payload = self.get(f"{BASE_URL}{self.endpoint.format(id=mgp_id)}")
+        status, payload = self.get(
+            f"{BASE_URL}{self.endpoint.format(id=mgp_id)}", label=f"id {mgp_id}: "
+        )
         return mgp_id, status, payload
 
 
@@ -219,6 +248,18 @@ def load_retryable(path: Path) -> set[int]:
     return {int(x) for x in json.loads(path.read_text()).get("errors", [])}
 
 
+def load_missing(path: Path) -> set[int]:
+    """Ids the run concluded were not in the database.
+
+    Worth a second look precisely because that conclusion is drawn from a 502,
+    which is also what a momentary outage produces. Re-asking is one request
+    per id and turns "probably lost nothing" into a checked statement.
+    """
+    if not path.exists():
+        sys.exit(f"{path} not found — nothing to recheck.")
+    return {int(x) for x in json.loads(path.read_text()).get("missing", [])}
+
+
 def load_stale(path: Path) -> set[int]:
     """Ids whose stored record is known to be out of date.
 
@@ -268,6 +309,109 @@ def command_probe(args: argparse.Namespace, auth: Auth) -> int:
     return 0
 
 
+def command_ceiling(args: argparse.Namespace, auth: Auth) -> int:
+    """Find the highest id MGP currently answers for.
+
+    Ids run well above the number of people — the June 2026 dump referenced
+    346,142 — and `fetch --max-id` should sit above the top rather than be
+    guessed at, since everything past the end costs one 404 each and everything
+    short of it is silently missing people.
+
+    The search gallops upward by doubling until a band comes back empty, then
+    bisects the gap, then sweeps the stretch above what it found to confirm the
+    answer. The sweep is not ceremony: bisection assumes ids stop once and stay
+    stopped, and finds the *first* empty band rather than the last live one, so
+    a long unassigned stretch below the top is reported as the top. Simulated
+    against a database with a 30,000-id gap under its ceiling, bisection alone
+    answered 299,995 for a top of 346,142 — a quiet 46,000-person shortfall in
+    the fetch that follows. The sweep catches that and re-bisects above it.
+    """
+    fetcher = Fetcher(auth, args.endpoint, args.delay)
+    step = max(1, args.width // max(args.samples, 1))
+    probed = 0
+    highest = 0
+
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+
+        def live_in(start: int) -> int | None:
+            """Highest live id sampled in [start, start+width), or None if empty."""
+            nonlocal probed, highest
+            ids = [i for i in range(max(start, 1), start + args.width, step)]
+            probed += len(ids)
+            found = [
+                mgp_id
+                for mgp_id, status, payload in pool.map(fetcher.fetch_id, ids)
+                if status == 200 and as_person_record(payload) is not None
+            ]
+            if not found:
+                print(f"  {start:>9,} … empty", file=sys.stderr)
+                return None
+            highest = max(highest, *found)
+            print(f"  {start:>9,} … {len(found)}/{len(ids)} alive", file=sys.stderr)
+            return max(found)
+
+        print(f"Searching for the highest live id, in bands of {args.width}:", file=sys.stderr)
+        low = args.start
+        if live_in(low) is None:
+            print(
+                f"\nNothing alive in [{low:,}, {low + args.width:,}) — that band should be dense.\n"
+                "Check your credentials and rerun `probe` before trusting anything here.",
+                file=sys.stderr,
+            )
+            return 1
+
+        # Gallop. The ceiling is found as a bracket [low live, high empty), not
+        # as a point, so the doubling only has to overshoot once.
+        high = low
+        while high < args.limit:
+            high *= 2
+            if live_in(high) is None:
+                break
+            low = high
+        else:
+            print(f"\nStill alive at {high:,}, the --limit. Raise it and rerun.", file=sys.stderr)
+            return 1
+
+        while True:
+            while high - low > args.width:
+                mid = (low + high) // 2
+                if live_in(mid) is None:
+                    high = mid
+                else:
+                    low = mid
+
+            # Confirm, by walking the stretch above the candidate at a coarser
+            # stride. Scanning all of it rather than stopping at the first hit
+            # gives back a fresh live/empty bracket to bisect between.
+            print(f"  confirming the {args.confirm:,} ids above are empty:", file=sys.stderr)
+            last_live: int | None = None
+            next_empty: int | None = None
+            for probe in range(high + args.stride, high + args.confirm, args.stride):
+                if live_in(probe) is not None:
+                    last_live, next_empty = probe, None
+                elif last_live is not None and next_empty is None:
+                    next_empty = probe
+            if last_live is None:
+                break
+            low = last_live
+            high = next_empty if next_empty is not None else last_live + args.stride
+
+    # The bands are sampled, not swept, so the true top sits a little above the
+    # highest id actually seen. The suggestion carries margin for that: an id
+    # past the end costs one 404, an id short of it costs a person.
+    suggested = -(-int(highest * 1.05) // 10_000) * 10_000
+    print(
+        f"\nHighest live id seen: {highest:,}  ({probed:,} ids probed)\n"
+        f"Empty from {high:,} up, and at every {args.stride:,} ids across the "
+        f"{args.confirm:,} above that.\n"
+        f"If that looks low, MGP may have a gap wider than the sweep — rerun with a "
+        f"larger --confirm.\n\n"
+        f"Next:\n  python3 {sys.argv[0]} fetch --max-id {suggested}",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def command_fetch(args: argparse.Namespace, auth: Auth) -> int:
     out_path: Path = args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -280,9 +424,12 @@ def command_fetch(args: argparse.Namespace, auth: Auth) -> int:
         done = set()
     else:
         done = load_done(out_path)
-        targets = sorted(load_retryable(args.retry_errors)) if args.retry_errors else list(
-            range(args.min_id, args.max_id + 1)
-        )
+        if args.recheck_missing:
+            targets = sorted(load_missing(args.recheck_missing))
+        elif args.retry_errors:
+            targets = sorted(load_retryable(args.retry_errors))
+        else:
+            targets = list(range(args.min_id, args.max_id + 1))
         todo = [i for i in targets if i not in done]
 
     print(
@@ -382,7 +529,18 @@ def command_fetch(args: argparse.Namespace, auth: Auth) -> int:
         ),
         file=sys.stderr,
     )
-    print(f"\nNext:\n  python3 pipeline/normalize.py {out_path}\n  python3 pipeline/build_web.py", file=sys.stderr)
+    # An absent id is an id that answered 502, and so is an id asked for during
+    # a bad minute. Re-asking is one request each and settles which it was.
+    print(
+        "\nNext:\n"
+        + (
+            f"  python3 {sys.argv[0]} fetch --recheck-missing {args.state} -o {out_path}\n"
+            if counts["missing"] and not args.recheck_missing
+            else ""
+        )
+        + f"  python3 pipeline/normalize.py {out_path}\n  python3 pipeline/build_web.py",
+        file=sys.stderr,
+    )
     return 0
 
 
@@ -396,6 +554,16 @@ def main() -> int:
     probe = sub.add_parser("probe", help="find the working endpoint shape")
     probe.add_argument("--probe-id", type=int, default=212291)
 
+    ceiling = sub.add_parser("ceiling", help="find the highest id MGP answers for")
+    ceiling.add_argument("--start", type=int, default=1000, help="a band start known to be populated")
+    ceiling.add_argument("--limit", type=int, default=8_000_000, help="give up above this id")
+    ceiling.add_argument("--width", type=int, default=CEILING_WIDTH)
+    ceiling.add_argument("--samples", type=int, default=CEILING_SAMPLES)
+    ceiling.add_argument("--confirm", type=int, default=CEILING_CONFIRM, help="how far above the candidate to sweep")
+    ceiling.add_argument("--stride", type=int, default=CEILING_STRIDE, help="spacing of the confirming sweep")
+    ceiling.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
+    ceiling.add_argument("--delay", type=float, default=DEFAULT_DELAY)
+
     fetch = sub.add_parser("fetch", help="fetch a range of ids")
     fetch.add_argument("--min-id", type=int, default=1)
     fetch.add_argument("--max-id", type=int, default=350000)
@@ -404,6 +572,12 @@ def main() -> int:
     fetch.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
     fetch.add_argument("--delay", type=float, default=DEFAULT_DELAY)
     fetch.add_argument("--retry-errors", type=Path, help="refetch only the ids that errored in this state file")
+    fetch.add_argument(
+        "--recheck-missing",
+        type=Path,
+        metavar="STATE",
+        help="re-ask the ids this state file recorded as absent, to confirm they really are",
+    )
     fetch.add_argument(
         "--refresh-ids",
         type=Path,
@@ -417,7 +591,8 @@ def main() -> int:
         password=os.environ.get("MGP_PASSWORD"),
         token=os.environ.get("MGP_TOKEN"),
     )
-    return command_probe(args, auth) if args.command == "probe" else command_fetch(args, auth)
+    commands = {"probe": command_probe, "ceiling": command_ceiling, "fetch": command_fetch}
+    return commands[args.command](args, auth)
 
 
 if __name__ == "__main__":

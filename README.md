@@ -80,14 +80,31 @@ scraping `id.php`, and returns richer records.
 ```bash
 export MGP_EMAIL=you@example.com          # password prompted, or MGP_PASSWORD
 python3 scripts/mgp_fetch.py probe        # confirm the API endpoint shape
+python3 scripts/mgp_fetch.py ceiling      # find the highest live id
 python3 scripts/mgp_fetch.py fetch --max-id 350000
 ```
+
+Every subcommand logs in for itself from those two variables, so there is no token to
+export or paste. `MGP_TOKEN` works too if you already have one, but it expires after two
+hours and cannot be renewed without the password.
 
 Records come from `/api/v2/MGP/acad?id=N`, which returns the `{"MGP_academic": {...}}`
 shape the normalizer expects. The API also documents `/api/v2/MGP/search` (returns a list of
 ids) and `/api/v2/MGP/siblings`, neither of which the fetch needs.
 
+An id that is not in MGP's database comes back **502**, not 404 — ids 206, 323 and 415
+do it every time, and MGP's own pages confirm those ids do not exist. Roughly 30,000 of
+the 348,500 ids are absent, so they are written off after a single request rather than
+retried; retrying them would add hours and find nothing.
+
+An outage looks exactly the same from outside, which is why the run ends by re-asking
+everything it wrote off. One request each, about 45 minutes, and it turns "probably lost
+nothing" into a checked statement — worth it, since the point of a full pull is
+`edge_direction_disagreements` coming out at 0.
+
 ```bash
+python3 scripts/mgp_fetch.py fetch --recheck-missing data/raw/fetch_state.json \
+  -o data/raw/mgp_dump.jsonl
 python3 pipeline/normalize.py data/raw/mgp_dump.jsonl
 python3 pipeline/build_web.py
 cd web && npm run build
@@ -98,8 +115,16 @@ cd web && npm run build
 Walk the whole id range. A complete pull is the only version of this dataset that can be
 checked: `edge_direction_disagreements` comes out at 0, because every advisor link is
 declared by both people it connects, and that zero is a real integrity test over the whole
-graph. Find the current ceiling first — ids run well above the number of people, and the
-June 2026 dump already referenced id 346,142.
+graph.
+
+Find the current ceiling first — ids run well above the number of people, and the June 2026
+dump already referenced id 346,142. `ceiling` gallops upward by doubling, bisects, then
+sweeps the 100,000 ids above its answer to make sure it has not stopped at a gap. It costs
+about 800 requests and a couple of minutes, and ends by printing the `--max-id` to use:
+
+```bash
+python3 scripts/mgp_fetch.py ceiling
+```
 
 ### Updating an existing snapshot
 
