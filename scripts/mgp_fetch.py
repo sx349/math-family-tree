@@ -172,6 +172,7 @@ class Fetcher:
             # for: re-asking everything written off as absent is one request
             # each, and settles it.
             if response.status_code == 502:
+                print(f"[warn] {label}HTTP 502, recording as absent", file=sys.stderr)
                 return 404, None
             if response.status_code == 429 or response.status_code >= 500:
                 wait = min(2 ** attempt, 60) + random.random()
