@@ -142,8 +142,14 @@ class Fetcher:
         self.auth, self.endpoint, self.delay, self.timeout = auth, endpoint, delay, timeout
         self.session = requests.Session()
 
-    def get(self, url: str, attempts: int = 6) -> tuple[int, Any]:
-        """GET with backoff on rate limits, server errors, and token expiry."""
+    def get(self, url: str, attempts: int = 4) -> tuple[int, Any]:
+        """GET with backoff on rate limits, server errors, and token expiry.
+
+        Four attempts, not more: some MGP records make their API return 502
+        every single time, so the retries are spent rather than useful. Four
+        costs 1+2+4+8 = 15s before the id is written off to `errors` and the run
+        moves on; six cost 63s. --retry-errors picks them up afterwards.
+        """
         for attempt in range(attempts):
             generation = self.auth.generation
             try:
