@@ -143,13 +143,7 @@ class Fetcher:
         self.session = requests.Session()
 
     def get(self, url: str, attempts: int = 4, label: str = "") -> tuple[int, Any]:
-        """GET with backoff on rate limits, server errors, and token expiry.
-
-        Four attempts, not more: some MGP records make their API return 502
-        every single time, so the retries are spent rather than useful. Four
-        costs 1+2+4+8 = 15s before the id is written off to `errors` and the run
-        moves on; six cost 63s. --retry-errors picks them up afterwards.
-        """
+        """GET with backoff on rate limits, server errors, and token expiry."""
         for attempt in range(attempts):
             generation = self.auth.generation
             try:
@@ -166,6 +160,18 @@ class Fetcher:
                 self.auth.refresh(generation)
                 continue
             if response.status_code == 404:
+                return 404, None
+            # MGP answers a request for an id that does not exist with 502
+            # rather than 404 — 206, 323 and 415 do it every time, and MGP's
+            # own web pages say those ids are not in the database. About 30,000
+            # of the 348,500 ids in the range are absent, so retrying them
+            # costs hours and finds nothing. Reported as 404 so the caller
+            # counts them under `missing`.
+            #
+            # An outage looks identical, which is what --recheck-missing is
+            # for: re-asking everything written off as absent is one request
+            # each, and settles it.
+            if response.status_code == 502:
                 return 404, None
             if response.status_code == 429 or response.status_code >= 500:
                 wait = min(2 ** attempt, 60) + random.random()
@@ -239,6 +245,18 @@ def load_retryable(path: Path) -> set[int]:
     if not path.exists():
         sys.exit(f"{path} not found — nothing to retry.")
     return {int(x) for x in json.loads(path.read_text()).get("errors", [])}
+
+
+def load_missing(path: Path) -> set[int]:
+    """Ids the run concluded were not in the database.
+
+    Worth a second look precisely because that conclusion is drawn from a 502,
+    which is also what a momentary outage produces. Re-asking is one request
+    per id and turns "probably lost nothing" into a checked statement.
+    """
+    if not path.exists():
+        sys.exit(f"{path} not found — nothing to recheck.")
+    return {int(x) for x in json.loads(path.read_text()).get("missing", [])}
 
 
 def load_stale(path: Path) -> set[int]:
@@ -405,9 +423,12 @@ def command_fetch(args: argparse.Namespace, auth: Auth) -> int:
         done = set()
     else:
         done = load_done(out_path)
-        targets = sorted(load_retryable(args.retry_errors)) if args.retry_errors else list(
-            range(args.min_id, args.max_id + 1)
-        )
+        if args.recheck_missing:
+            targets = sorted(load_missing(args.recheck_missing))
+        elif args.retry_errors:
+            targets = sorted(load_retryable(args.retry_errors))
+        else:
+            targets = list(range(args.min_id, args.max_id + 1))
         todo = [i for i in targets if i not in done]
 
     print(
@@ -507,7 +528,18 @@ def command_fetch(args: argparse.Namespace, auth: Auth) -> int:
         ),
         file=sys.stderr,
     )
-    print(f"\nNext:\n  python3 pipeline/normalize.py {out_path}\n  python3 pipeline/build_web.py", file=sys.stderr)
+    # An absent id is an id that answered 502, and so is an id asked for during
+    # a bad minute. Re-asking is one request each and settles which it was.
+    print(
+        "\nNext:\n"
+        + (
+            f"  python3 {sys.argv[0]} fetch --recheck-missing {args.state} -o {out_path}\n"
+            if counts["missing"] and not args.recheck_missing
+            else ""
+        )
+        + f"  python3 pipeline/normalize.py {out_path}\n  python3 pipeline/build_web.py",
+        file=sys.stderr,
+    )
     return 0
 
 
@@ -539,6 +571,12 @@ def main() -> int:
     fetch.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
     fetch.add_argument("--delay", type=float, default=DEFAULT_DELAY)
     fetch.add_argument("--retry-errors", type=Path, help="refetch only the ids that errored in this state file")
+    fetch.add_argument(
+        "--recheck-missing",
+        type=Path,
+        metavar="STATE",
+        help="re-ask the ids this state file recorded as absent, to confirm they really are",
+    )
     fetch.add_argument(
         "--refresh-ids",
         type=Path,

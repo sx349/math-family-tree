@@ -92,7 +92,19 @@ Records come from `/api/v2/MGP/acad?id=N`, which returns the `{"MGP_academic": {
 shape the normalizer expects. The API also documents `/api/v2/MGP/search` (returns a list of
 ids) and `/api/v2/MGP/siblings`, neither of which the fetch needs.
 
+An id that is not in MGP's database comes back **502**, not 404 — ids 206, 323 and 415
+do it every time, and MGP's own pages confirm those ids do not exist. Roughly 30,000 of
+the 348,500 ids are absent, so they are written off after a single request rather than
+retried; retrying them would add hours and find nothing.
+
+An outage looks exactly the same from outside, which is why the run ends by re-asking
+everything it wrote off. One request each, about 45 minutes, and it turns "probably lost
+nothing" into a checked statement — worth it, since the point of a full pull is
+`edge_direction_disagreements` coming out at 0.
+
 ```bash
+python3 scripts/mgp_fetch.py fetch --recheck-missing data/raw/fetch_state.json \
+  -o data/raw/mgp_dump.jsonl
 python3 pipeline/normalize.py data/raw/mgp_dump.jsonl
 python3 pipeline/build_web.py
 cd web && npm run build
