@@ -381,7 +381,10 @@ export function GraphView({
     // 1:1 zoom — wrapping to something wider only trades a strip for a smaller
     // strip once the fit scales it back down.
     const viewportWidth = cy.width() || 900;
-    wrapWideRanks(cy, Math.max(640, Math.min(viewportWidth - 80, 1400)));
+    // Wrap to the plate's own width, whatever that is. The old floor of 640px
+    // was wider than a phone, so on a 390px screen every diagram was built
+    // 250px too wide and then clipped on both sides.
+    wrapWideRanks(cy, Math.min(Math.max(viewportWidth - 40, 300), 1400));
 
     // Give the plate the height this particular diagram needs, before fitting
     // into it. Height is the only dimension free to move — width belongs to
@@ -408,6 +411,19 @@ export function GraphView({
       else cy.center();
       clampPan(cy, 40);
     }
+
+    // Gestures belong to the page unless the diagram actually needs them. The
+    // plate is now sized to its contents and can stand two phone screens tall,
+    // so a canvas that swallowed every scroll and drag would leave the reader
+    // unable to get past it. Wheel and pinch never zoom — "Fit all" and
+    // "Recentre" do that — and dragging only pans when there is something
+    // outside the plate to pan to.
+    const drawn = cy.nodes().boundingBox();
+    const fits =
+      drawn.w * cy.zoom() <= cy.width() - 40 && drawn.h * cy.zoom() <= cy.height() - 40;
+    cy.userZoomingEnabled(false);
+    cy.userPanningEnabled(!fits);
+    cy.autoungrabify(true);
 
     cy.on('tap', 'node', (event) => {
       const data = event.target.data();
@@ -437,15 +453,20 @@ export function GraphView({
   };
 
   return (
-    <div className="plate-frame" ref={frame}>
-      <div className="plate-canvas" ref={container} />
+    <>
+      {/* Above the plate, not floating inside it: overlaid at the top right
+          they covered the topmost generation, which on a narrow screen is
+          where the diagram is widest. */}
       {nodes.length > 0 && (
         <div className="plate-tools">
           <button className="button" type="button" onClick={fitAll}>Fit all</button>
           <button className="button" type="button" onClick={recenter}>Recentre</button>
         </div>
       )}
-      {nodes.length === 0 && emptyMessage && <div className="plate-empty">{emptyMessage}</div>}
-    </div>
+      <div className="plate-frame" ref={frame}>
+        <div className="plate-canvas" ref={container} />
+        {nodes.length === 0 && emptyMessage && <div className="plate-empty">{emptyMessage}</div>}
+      </div>
+    </>
   );
 }
