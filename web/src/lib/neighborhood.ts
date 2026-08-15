@@ -11,9 +11,10 @@
  *
  * The two directions are not comparable quantities and must not share a
  * control. Measured on the snapshot, Hilbert has 2 / 6 / 12 / 19 / 30 ancestors
- * at depths 1-5 against 79 / 454 / 2,249 / 8,239 / 20,940 descendants. Across a
- * random sample, ancestors at depth 20 have a median of 114 and a maximum of
- * 296: going up is always cheap, going down explodes at once. So ancestors are
+ * at depths 1-5 against 79 / 454 / 2,249 / 8,239 / 20,940 descendants. Over all
+ * 307,559 people with an advisor, ten generations up reaches a median of 19
+ * people and at most 160: going up is always cheap, going down explodes at
+ * once. So ancestors are
  * admitted in full and only descendants are rationed by the node budget — whole
  * generations at a time, since half a generation would show an arbitrary subset
  * of someone's students as though it were all of them.
@@ -83,23 +84,31 @@ export const MAX_ANCESTORS = 5;
 export const MAX_DESCENDANTS = 5;
 
 /**
- * The lineage view goes much further up, but not indefinitely. A median
- * lineage in the snapshot runs 36 generations and 220 people, which draws as a
- * column far taller than it is wide and stops being readable long before it
- * runs out. Twenty generations reaches the eighteenth century for most people
- * while keeping the diagram a shape rather than a strip.
+ * The lineage view goes much further up than the neighbourhood one, but not
+ * indefinitely. A median lineage in the snapshot runs 36 generations and 220
+ * people, which draws as a column far taller than it is wide and stops being
+ * readable long before it runs out.
+ *
+ * Ten, not twenty, because of what twenty costs on screen. Dagre ranks by
+ * longest path, so twenty requested generations became about forty-five drawn
+ * ranks — Deng's stood 4,969px high on a desktop and 8,796px on a phone, more
+ * than any plate can hold, and the reader saw half a diagram with no way to
+ * tell. At ten every case measured fits whole on both.
  */
-export const MAX_LINEAGE = 20;
+export const MAX_LINEAGE = 10;
 export const DEFAULT_LINEAGE = 8;
 
 /**
  * Lineage gets its own budget, because the neighbourhood one governed a view it
- * was never measured for. Twenty generations of advisors reaches 438 people at
- * the very widest, measured over all 307,559 people in the snapshot who have an
- * advisor — median 127, p99 303. At 200 the budget cut 68,890 of them short of
- * the depth their slider asked for; at 500 it cuts nobody, which leaves the
- * generation cap as the single thing limiting this view. Two limits where only
- * one is meant to bind is how the diagram came to disagree with its own label.
+ * was never measured for: at 200 it cut 68,890 people short of the depth their
+ * slider asked for, and a diagram that disagrees with its own label is worse
+ * than a shallow one.
+ *
+ * At the ten-generation ceiling nobody comes near this. Over all 307,559 people
+ * with an advisor, ten generations up reaches a median of 19 and a maximum of
+ * 160 — Lekshmi Dharmarajan's. So this is a backstop against a future snapshot
+ * or a raised ceiling, not a limit any reader meets, and the generation count
+ * is the only thing governing what the view shows.
  */
 export const LINEAGE_NODE_BUDGET = 500;
 

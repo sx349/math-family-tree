@@ -238,18 +238,21 @@ describe('neighborhood', () => {
   });
 
   it('caps the lineage view by budget as well as by generations', () => {
-    const result = neighborhood(dataset, dataset.indexOfId(DENG), {
+    // Hilbert, not Deng: at the ten-generation ceiling Deng's whole lineage is
+    // 22 people, so no budget worth testing with binds on it. Hilbert reaches
+    // 83, which a budget of 20 cuts well short.
+    const result = neighborhood(dataset, dataset.indexOfId(HILBERT), {
       ancestors: MAX_LINEAGE,
       descendants: 0,
-      nodeBudget: 60,
+      nodeBudget: 20,
     });
-    expect(result.nodes.length).toBeLessThanOrEqual(60);
+    expect(result.nodes.length).toBeLessThanOrEqual(20);
     expect(result.nextAncestorRing).toBeGreaterThan(0);
     expect(result.budgetLimited).toBe(true);
   });
 
   it('lets the generation cap, not the budget, govern the lineage view', () => {
-    // The widest lineage in the snapshot reaches 438 people within MAX_LINEAGE
+    // The widest lineage in the snapshot reaches 160 people within MAX_LINEAGE
     // generations. If the budget ever binds at the shipped setting, the slider
     // stops meaning what it says — which is exactly the bug this pins down.
     for (const id of [DENG, HILBERT, GAUSS, GUDERMANN]) {
