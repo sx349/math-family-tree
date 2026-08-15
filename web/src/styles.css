@@ -184,6 +184,9 @@ label {
 }
 
 .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 20px 26px; }
+/* The search form now opens both pages directly under the title, where a
+   field label sitting hard against a 40px heading reads as a collision. */
+h1 + form .field-grid { margin-top: 26px; }
 
 .controls {
   display: flex; flex-wrap: wrap; align-items: center; gap: 14px 26px;
