@@ -201,6 +201,7 @@ label {
    field label sitting hard against a 40px heading reads as a collision. */
 h1 + form .field-grid { margin-top: 26px; }
 
+
 .controls {
   display: flex; flex-wrap: wrap; align-items: center; gap: 14px 26px;
   margin: 20px 0; padding: 13px 0;
@@ -291,7 +292,12 @@ h1 + form .field-grid { margin-top: 26px; }
 
 /* ------------------------------------------------------------------ footer */
 
-footer.colophon {
+/* Ruled off, the way the runhead is ruled under — the colophon is the foot of
+   the page rather than the last paragraph of it. Full-bleed to match that rule,
+   and a hairline rather than ink, since it closes the page instead of opening
+   it. */
+footer.colophon { border-top: 1px solid var(--hair); }
+footer.colophon .inner {
   max-width: 1080px; margin: 0 auto; padding: 14px var(--gutter) 36px;
   color: var(--ink-faint); font-size: 0.78rem;
 }

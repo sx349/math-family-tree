@@ -45,7 +45,7 @@ export function LcaPage() {
 
   return (
     <div className="page">
-      <h1>Common ancestors</h1>
+      <h1>Common Ancestors</h1>
 
       <PersonSearch
         onPick={add}
