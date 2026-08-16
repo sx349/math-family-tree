@@ -26,6 +26,12 @@ continuously, so interrupting and restarting picks up where it left off and
 never refetches an id.  MGP is a small volunteer-run service; please do not
 raise the concurrency much.
 
+An id that is not in the database answers 502 rather than 404, and so does an
+API that is down.  After 25 of them in a row the run asks for an id that
+certainly exists, and stops if that fails too — otherwise an outage is recorded
+as thousands of people who do not exist.  `--recheck-missing` re-asks whatever
+was written off, afterwards.
+
 Endpoint discovery
 ------------------
 MGP's v2 API paths are documented behind their login, and this script was
@@ -94,6 +100,16 @@ CEILING_SAMPLES = 20
 CEILING_CONFIRM = 100_000
 CEILING_STRIDE = 5_000
 
+# A 502 means "no such id" — until it doesn't. After this many in a row, the
+# run asks for someone who certainly exists before believing any more of them.
+CANARY_ID = 7298  # Hilbert
+CANARY_EVERY = 25
+
+
+class OutageDetected(RuntimeError):
+    """502s have stopped looking like absent ids and started looking like a
+    database that is down."""
+
 
 class Auth:
     """Holds the access token and transparently refreshes it when it expires."""
@@ -141,6 +157,49 @@ class Fetcher:
     def __init__(self, auth: Auth, endpoint: str, delay: float, timeout: float = 30.0):
         self.auth, self.endpoint, self.delay, self.timeout = auth, endpoint, delay, timeout
         self.session = requests.Session()
+        self._canary_lock = threading.Lock()
+        self._consecutive_502 = 0
+        self._outage = False
+
+    def looks_absent(self) -> bool:
+        """Is this 502 an id that is not there, or an API that is not there?
+
+        The two are indistinguishable at the status-code level, and reading the
+        second as the first is not a small error: a six-hour outage recorded
+        122,830 ids as nonexistent, silently, because every one of them came
+        back 502 exactly like a genuine gap.
+
+        Absent ids are scattered — about 2% of the range — so a long run of
+        them is itself the signal. After CANARY_EVERY in a row, ask for an id
+        that certainly exists. If that answers, the 502s are real gaps and the
+        run continues. If it does not, the caller stops the run.
+
+        The verdict latches. Checking only every 25th was not enough on its
+        own: simulated against an API that failed from one id onward, the other
+        24 of each 25 were still written off as absent, 101 of them in a
+        151-id run.
+        """
+        with self._canary_lock:
+            if self._outage:
+                return False
+            self._consecutive_502 += 1
+            if self._consecutive_502 % CANARY_EVERY:
+                return True
+
+        try:
+            response = self.session.get(
+                f"{BASE_URL}{self.endpoint.format(id=CANARY_ID)}",
+                headers=self.auth.headers(),
+                timeout=self.timeout,
+            )
+            alive = response.ok and as_person_record(response.json()) is not None
+        except (requests.RequestException, ValueError):
+            alive = False
+
+        if not alive:
+            with self._canary_lock:
+                self._outage = True
+        return alive
 
     def get(self, url: str, attempts: int = 4, label: str = "") -> tuple[int, Any]:
         """GET with backoff on rate limits, server errors, and token expiry."""
@@ -163,15 +222,15 @@ class Fetcher:
                 return 404, None
             # MGP answers a request for an id that does not exist with 502
             # rather than 404 — 206, 323 and 415 do it every time, and MGP's
-            # own web pages say those ids are not in the database. About 30,000
-            # of the 348,500 ids in the range are absent, so retrying them
-            # costs hours and finds nothing. Reported as 404 so the caller
-            # counts them under `missing`.
-            #
-            # An outage looks identical, which is what --recheck-missing is
-            # for: re-asking everything written off as absent is one request
-            # each, and settles it.
+            # own web pages say those ids are not in the database. Roughly 2%
+            # of the id range is absent, so retrying them finds nothing.
+            # Reported as 404 so the caller counts them under `missing`.
             if response.status_code == 502:
+                if not self.looks_absent():
+                    raise OutageDetected(
+                        f"{CANARY_EVERY} consecutive 502s, and id {CANARY_ID} has stopped "
+                        "answering too"
+                    )
                 print(f"[warn] {label}HTTP 502, recording as absent", file=sys.stderr)
                 return 404, None
             if response.status_code == 429 or response.status_code >= 500:
@@ -184,6 +243,10 @@ class Fetcher:
                 continue
             if not response.ok:
                 return response.status_code, None
+            # A success ends the run of 502s, so scattered gaps never
+            # accumulate towards the canary across the whole fetch.
+            with self._canary_lock:
+                self._consecutive_502 = 0
             try:
                 return 200, response.json()
             except ValueError:
@@ -497,6 +560,18 @@ def command_fetch(args: argparse.Namespace, auth: Auth) -> int:
                         f"{rate:.1f}/s  ~{(len(todo) - processed) / max(rate, 1e-9) / 3600:.1f}h left",
                         file=sys.stderr,
                     )
+    except OutageDetected as exc:
+        save_state()
+        print(
+            f"\n\nSTOPPED after {processed:,} ids: {exc}.\n\n"
+            "MGP is answering 502 for ids that exist, which this run would otherwise\n"
+            "record as people who are not in the database. Check\n"
+            "https://www.mathgenealogy.org/ and rerun the same command once it is back.\n\n"
+            f"The last few ids before the stop may have been filed as absent; "
+            f"`fetch --recheck-missing {args.state}` re-asks them.",
+            file=sys.stderr,
+        )
+        return 3
     except KeyboardInterrupt:
         save_state()
         print(

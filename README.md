@@ -93,14 +93,24 @@ shape the normalizer expects. The API also documents `/api/v2/MGP/search` (retur
 ids) and `/api/v2/MGP/siblings`, neither of which the fetch needs.
 
 An id that is not in MGP's database comes back **502**, not 404 — ids 206, 323 and 415
-do it every time, and MGP's own pages confirm those ids do not exist. Roughly 30,000 of
-the 348,500 ids are absent, so they are written off after a single request rather than
-retried; retrying them would add hours and find nothing.
+do it every time, and MGP's own pages confirm those ids do not exist. About 2% of the id
+range is absent, so they are written off after a single request rather than retried.
 
-An outage looks exactly the same from outside, which is why the run ends by re-asking
-everything it wrote off. One request each, about 45 minutes, and it turns "probably lost
-nothing" into a checked statement — worth it, since the point of a full pull is
+An outage looks exactly the same from outside, and reading one as the other is not a
+small error. In August 2026 the API stopped answering three hours into a run and the
+fetch recorded **122,830 people as nonexistent** over the following six hours, silently,
+because every id came back 502 exactly like a genuine gap.
+
+Two things guard against a repeat. During the run, 25 consecutive 502s trigger a request
+for an id known to exist; if that fails too, the fetch stops rather than carrying on
+(exit code 3). Simulated against an API that failed partway, that caps the damage at 24
+ids instead of everything remaining. And after the run, `--recheck-missing` re-asks
+everything written off — one request each, and it turns "probably lost nothing" into a
+checked statement, which matters because the point of a full pull is
 `edge_direction_disagreements` coming out at 0.
+
+The count on [MGP's home page](https://www.mathgenealogy.org/) is the other check worth
+making: a complete pull should hold about that many records.
 
 ```bash
 python3 scripts/mgp_fetch.py fetch --recheck-missing data/raw/fetch_state.json \
