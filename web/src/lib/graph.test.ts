@@ -24,6 +24,8 @@ const HILBERT = 7298;
 const GAUSS = 18231;
 const GUDERMANN = 29458;
 const DENG = 212291;
+const HONG_WANG = 263482;
+const ZHIWEI_YUN = 142226;
 
 let dataset: Dataset;
 
@@ -350,5 +352,25 @@ describe('lowest common ancestors', () => {
     // Gauß is 11 hops above Deng, so a limit of 5 cannot connect them.
     expect(lowestCommonAncestors(dataset, targets, 5).groups).toHaveLength(0);
     expect(lowestCommonAncestors(dataset, targets, 12).groups).toHaveLength(1);
+  });
+
+  it('connects every target even when two of their paths share ancestors before diverging', () => {
+    // Wang's and Yun's paths up to Chasles both pass through Newton and E. H.
+    // Moore before splitting. pathNodes used to skip re-entering a node once
+    // any target's path had already added it, which severed whichever path
+    // got walked second right at the fork and left that target with no edge
+    // to the rest of the group.
+    const targets = [DENG, HONG_WANG, ZHIWEI_YUN].map((id) => dataset.indexOfId(id));
+    const { groups } = lowestCommonAncestors(dataset, targets);
+    expect(groups).toHaveLength(1);
+    const group = groups[0];
+    expect(group.ancestors.map((i) => dataset.displayName(i))).toEqual(['Chasles, Michel']);
+
+    const touched = new Set<number>();
+    for (const [a, b] of group.edges) {
+      touched.add(a);
+      touched.add(b);
+    }
+    for (const target of targets) expect(touched.has(target)).toBe(true);
   });
 });

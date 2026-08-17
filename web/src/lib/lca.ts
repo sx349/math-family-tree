@@ -113,16 +113,18 @@ function pathNodes(
   into.add(ancestor);
   let frontier = [ancestor];
   for (let hop = remaining; hop > 0; hop--) {
-    const next: number[] = [];
+    // A Set, not a filter on `!into.has`: another target's path may already
+    // have added this node (paths converge before a common ancestor and
+    // diverge after), and skipping it here would break *this* path in two
+    // without the node itself ever being missing from `into`.
+    const next = new Set<number>();
     for (const index of frontier) {
       for (const student of dataset.students(index)) {
-        if (distances.get(student) === hop - 1 && !into.has(student)) {
-          into.add(student);
-          next.push(student);
-        }
+        if (distances.get(student) === hop - 1) next.add(student);
       }
     }
-    frontier = next;
+    for (const student of next) into.add(student);
+    frontier = [...next];
   }
 }
 
