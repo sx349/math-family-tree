@@ -3,11 +3,13 @@
 A visualisation of advisor–student lineages from the
 [Mathematics Genealogy Project](https://www.genealogy.math.ndsu.nodak.edu/) (MGP).
 
-Two things it does that the MGP site does not:
+Things it does that the MGP site does not:
 
-- **Neighbourhood graphs.** Every mathematician has a page showing their advisors and
-  students as a diagram, widened a generation at a time.
-- **Common ancestors.** Pick up to five people and see the lowest advisor they all descend
+- **Neighbourhood graphs.** Every mathematician has a page showing everyone within a chosen
+  number of steps — advisors, students, and anyone reached through both — as a diagram.
+- **Lineage view.** The same page can instead trace just the advisor chain straight up, many
+  more generations than the neighbourhood view goes.
+- **Common ancestors.** Pick up to five people and see the lowest advisor(s) they all descend
   from, with only the connecting paths drawn.
 
 Search here also differs from MGP's: fields are combined with **and**, so a first *and* last
