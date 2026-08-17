@@ -30,11 +30,15 @@ export interface LcaEdge {
   from: number;
   to: number;
   /**
-   * Indices into `targets`: which selected people's shortest path to an
-   * ancestor actually runs through this edge. Empty when the edge merely
-   * connects two admitted nodes without lying on any tracked path — real
-   * structure worth drawing, but not part of the answer to "how does X
-   * connect to the ancestor" for any particular X.
+   * Which selected person's shortest path to an ancestor actually runs
+   * through this edge, as an index into the full up-to-`MAX_TARGETS`
+   * selection passed to `lowestCommonAncestors` — not into this group's own
+   * `targets`, which is only ever a subset renumbered from zero. Keeping the
+   * index global means the same person gets the same index in every group of
+   * a forest. Empty when the edge merely connects two admitted nodes without
+   * lying on any tracked path — real structure worth drawing, but not part
+   * of the answer to "how does X connect to the ancestor" for any particular
+   * X.
    */
   owners: number[];
 }
@@ -232,8 +236,14 @@ export function lowestCommonAncestors(
     const ancestors = minimalAncestors(dataset, common, maxDepth);
     const nodes = new Set<number>(members);
     const edgeOwners = new Map<string, Set<number>>();
+    // Tagged by each member's index in the *full* selection, not in this
+    // group — a forest still wants the same person drawn in the same colour
+    // in every one of its trees, and a group's own `members` is only ever a
+    // subset renumbered from zero.
     for (const ancestor of ancestors) {
-      memberAncestries.forEach((ancestry, member) => pathNodes(dataset, ancestor, ancestry, nodes, edgeOwners, member));
+      memberAncestries.forEach((ancestry, i) =>
+        pathNodes(dataset, ancestor, ancestry, nodes, edgeOwners, unique.indexOf(members[i])),
+      );
     }
 
     const edges: LcaEdge[] = [];

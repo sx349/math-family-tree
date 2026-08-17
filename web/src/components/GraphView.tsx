@@ -68,19 +68,36 @@ const MIN_ZOOMED_FONT_SIZE = 7;
 const MIN_LEGIBLE_ZOOM = MIN_ZOOMED_FONT_SIZE / NODE_FONT_SIZE;
 
 /**
- * One dash rhythm per selection slot, so a reader can trace which of up to
- * five targets a given edge belongs to without their line ever needing a
- * colour: increasingly long dashes, with the last two doubled up rather than
- * lengthened again, since past a point a longer dash reads the same as the
- * one before it at this line weight.
+ * One muted ink per selection slot, on the LCA page only — every other view
+ * passes edges with no `owners`, so this never fires there. A dash rhythm
+ * per target was tried first and dropped: on a diagram dense enough to need
+ * this at all, a rhythm needs real scrutiny to place, where a hue is picked
+ * out at a glance. Kept off-saturation to still read as a printed plate
+ * rather than a chart.
  */
-const PATH_DASH_PATTERNS: number[][] = [
-  [1, 4],
-  [6, 4],
-  [11, 4],
-  [8, 3, 2, 3],
-  [8, 3, 2, 3, 2, 3],
+const TARGET_INKS: Array<[number, number, number]> = [
+  [58, 90, 122], // indigo
+  [63, 107, 74], // forest
+  [166, 124, 46], // ochre
+  [107, 69, 112], // plum
+  [47, 111, 106], // teal
 ];
+
+/**
+ * An edge shared by several targets is drawn in the average of their inks
+ * rather than picking one — the same convergence a Venn diagram shows by
+ * overlapping fills, done with a single line. Converges toward a muddy
+ * neutral as more targets share it, which is the right direction: an edge
+ * everyone's path uses is exactly the backbone structure that colour isn't
+ * meant to be claiming credit for.
+ */
+function blendInk(owners: number[]): string {
+  const [r, g, b] = owners
+    .map((i) => TARGET_INKS[i % TARGET_INKS.length])
+    .reduce(([ar, ag, ab], [r, g, b]) => [ar + r, ag + g, ab + b], [0, 0, 0])
+    .map((sum) => Math.round(sum / owners.length));
+  return `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+}
 
 /**
  * A lineage is tall and narrow, and taller than it first looks: dagre ranks by
@@ -324,16 +341,13 @@ export function GraphView({
 
     for (const { from, to, owners } of edges) {
       if (present.has(from) && present.has(to)) {
-        // Only a *single* owner gets its own dash pattern: an edge two or
-        // more targets share is exactly as much "everyone's" as "no one's"
-        // in particular, and is drawn plain like one with no owner at all.
-        const pathOwner = owners?.length === 1 ? owners[0] : undefined;
+        const pathColor = owners && owners.length > 0 ? blendInk(owners) : undefined;
         definitions.push({
           data: {
             id: `e${from}-${to}`,
             source: `n${from}`,
             target: `n${to}`,
-            ...(pathOwner !== undefined ? { pathOwner } : {}),
+            ...(pathColor ? { pathColor } : {}),
           },
         });
       }
@@ -437,8 +451,8 @@ export function GraphView({
           selector: 'edge',
           style: {
             width: 0.8,
-            'line-color': palette.inkSoft,
-            'target-arrow-color': palette.inkSoft,
+            'line-color': (element) => (element.data('pathColor') as string | undefined) ?? palette.inkSoft,
+            'target-arrow-color': (element) => (element.data('pathColor') as string | undefined) ?? palette.inkSoft,
             'target-arrow-shape': 'triangle',
             'arrow-scale': 0.6,
             'curve-style': 'bezier',
@@ -449,10 +463,6 @@ export function GraphView({
           selector: 'edge[overflow]',
           style: { 'line-style': 'dashed', 'target-arrow-shape': 'none' },
         },
-        ...PATH_DASH_PATTERNS.map((pattern, owner) => ({
-          selector: `edge[pathOwner = ${owner}]`,
-          style: { 'line-style': 'dashed' as const, 'line-dash-pattern': pattern },
-        })),
         {
           selector: 'node:selected',
           style: { 'border-color': palette.oxblood, 'border-width': 2.4 },
