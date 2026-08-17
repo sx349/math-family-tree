@@ -49,6 +49,11 @@ function Chrome() {
           <a href="https://www.genealogy.math.ndsu.nodak.edu/" target="_blank" rel="noreferrer">
             Mathematics Genealogy Project
           </a>
+          . Snapshot seeded from{' '}
+          <a href="https://github.com/pablit0o/MGP-visualizer" target="_blank" rel="noreferrer">
+            pablit0o/MGP-visualizer
+          </a>
+          .
         </div>
       </footer>
     </>
