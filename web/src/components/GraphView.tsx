@@ -482,7 +482,7 @@ export function GraphView({
             // box downward instead of losing its end, which matters most for
             // exactly the long, multi-part names this dataset has plenty of.
             'text-wrap': 'wrap',
-            'text-max-width': '176px',
+            'text-max-width': '128px',
             // Below ~7px on screen a name is grey noise that obscures the shape
             // of the graph. Cytoscape drops the text entirely at that point, so
             // a dense view reads as clean boxes and names return on zoom in.
@@ -548,6 +548,7 @@ export function GraphView({
         rankDir: 'TB',
         nodeSep: 14,
         rankSep: 76,
+        ranker: 'tight-tree',
         animate: false,
         fit: false, // fitted below, after the wrap pass has moved things
         padding: 40,
