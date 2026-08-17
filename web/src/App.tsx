@@ -49,7 +49,6 @@ function Chrome() {
           <a href="https://www.genealogy.math.ndsu.nodak.edu/" target="_blank" rel="noreferrer">
             Mathematics Genealogy Project
           </a>
-          {' '}· not affiliated
         </div>
       </footer>
     </>
