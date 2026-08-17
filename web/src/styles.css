@@ -197,6 +197,23 @@ label {
 }
 
 .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 20px 26px; }
+
+/* A custom stepper in place of the number input's own: the browser's starts
+   counting from zero, which for a year field means the reader clicking it
+   into the 1900s one year at a time. */
+.year-field { position: relative; }
+.year-field input[type='number'] { padding-right: 20px; -moz-appearance: textfield; }
+.year-field input[type='number']::-webkit-inner-spin-button,
+.year-field input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.year-steppers {
+  position: absolute; top: 0; right: 0; bottom: 0;
+  display: flex; flex-direction: column; justify-content: center;
+}
+.year-steppers button {
+  all: unset; cursor: pointer; font-size: 8px; line-height: 1;
+  color: var(--ink-faint); padding: 2px 3px;
+}
+.year-steppers button:hover { color: var(--oxblood); }
 /* The search form now opens both pages directly under the title, where a
    field label sitting hard against a 40px heading reads as a collision. */
 h1 + form .field-grid { margin-top: 26px; }
