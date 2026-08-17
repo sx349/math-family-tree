@@ -40,8 +40,10 @@ export function Home() {
           &nbsp;·&nbsp;
           <span className="num">{manifest.edgeCount.toLocaleString()}</span> advisor links
         </p>
+        {/* The source is credited in the colophon; what the cover needs to say
+            is how old this is, which was buried behind the attribution. */}
         <p className="cover-source label">
-          From the Mathematics Genealogy Project &nbsp;·&nbsp;
+          Data snapshot &nbsp;·&nbsp;
           <span className="num">{longDate(manifest.dataDate ?? manifest.builtAt)}</span>
         </p>
 

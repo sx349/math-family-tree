@@ -77,11 +77,12 @@ export const DEFAULT_NODE_BUDGET = 200;
 export const DEFAULT_EXPANSION_BUDGET = 50;
 
 /**
- * Neighbourhood ceilings. Both directions stay local here — the view is for
- * seeing how someone sits among the people around them.
+ * The neighbourhood's one ceiling, applied in both directions at once. The view
+ * asks a single question — how someone sits among the people around them — and
+ * that is a radius, not two independent reaches. Where the two directions do
+ * need separating, that is the lineage mode, which is why it exists.
  */
-export const MAX_ANCESTORS = 5;
-export const MAX_DESCENDANTS = 5;
+export const MAX_DEPTH = 5;
 
 /**
  * The lineage view goes much further up than the neighbourhood one, but not
@@ -121,11 +122,11 @@ export function neighborhood(
   root: number,
   options: NeighborhoodOptions,
 ): Neighborhood {
-  // MAX_LINEAGE, not MAX_ANCESTORS: the latter is the neighbourhood view's own
-  // ceiling, enforced by its slider. Clamping here to 5 silently capped the
-  // lineage view at five generations however far its control was dragged.
+  // Up is clamped to MAX_LINEAGE, not MAX_DEPTH: the neighbourhood's ceiling is
+  // enforced by its own control, and clamping to it here would silently cap the
+  // lineage view however far its control was dragged.
   const wantUp = Math.max(0, Math.min(options.ancestors, MAX_LINEAGE));
-  const wantDown = Math.max(0, Math.min(options.descendants, MAX_DESCENDANTS));
+  const wantDown = Math.max(0, Math.min(options.descendants, MAX_DEPTH));
   const expanded = options.expanded ?? new Set<string>();
   const expansionBudget = options.expansionBudget ?? DEFAULT_EXPANSION_BUDGET;
 

@@ -44,11 +44,12 @@ function Chrome() {
 
       {/* Attribution is an obligation; everything else was padding. */}
       <footer className="colophon">
-        Data from the{' '}
-        <a href="https://www.genealogy.math.ndsu.nodak.edu/" target="_blank" rel="noreferrer">
-          Mathematics Genealogy Project
-        </a>
-        {' '}· not affiliated
+        <div className="inner">
+          Data from the{' '}
+          <a href="https://www.genealogy.math.ndsu.nodak.edu/" target="_blank" rel="noreferrer">
+            Mathematics Genealogy Project
+          </a>
+        </div>
       </footer>
     </>
   );

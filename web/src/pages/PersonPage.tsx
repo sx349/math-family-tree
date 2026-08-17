@@ -9,18 +9,23 @@ import {
   DEFAULT_LINEAGE,
   DEFAULT_NODE_BUDGET,
   LINEAGE_NODE_BUDGET,
-  MAX_ANCESTORS,
-  MAX_DESCENDANTS,
+  MAX_DEPTH,
   MAX_LINEAGE,
   drawnCounts,
   neighborhood,
 } from '../lib/neighborhood';
 
 /**
- * Two questions, two diagrams. Neighbourhood asks how someone sits among the
- * people around them, which needs both directions and stays local. Lineage
- * asks who they descend from, which needs one direction and goes far — and
- * mixing the two produced a view that answered neither well.
+ * Two questions, two diagrams — and one control each.
+ *
+ * Neighbourhood asks how someone sits among the people around them. That is a
+ * radius, so it takes a single depth and spends it in both directions at once.
+ * Lineage asks who they descend from, which is one direction and goes much
+ * further, so it takes generations of advisors and nothing else.
+ *
+ * The split belongs between the modes, not inside one: an earlier version gave
+ * the neighbourhood separate advisor and student sliders, which made the reader
+ * answer a question the mode had already answered for them.
  */
 type Mode = 'neighbourhood' | 'lineage';
 
@@ -31,8 +36,7 @@ export function PersonPage() {
   const index = dataset.indexOfId(Number(id));
 
   const [mode, setMode] = useState<Mode>('neighbourhood');
-  const [ancestors, setAncestors] = useState(1);
-  const [descendants, setDescendants] = useState(1);
+  const [depth, setDepth] = useState(1);
   const [lineage, setLineage] = useState(DEFAULT_LINEAGE);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<PersonDetail | null>(null);
@@ -43,8 +47,7 @@ export function PersonPage() {
   useEffect(() => {
     setExpanded(new Set());
     setMode('neighbourhood');
-    setAncestors(1);
-    setDescendants(1);
+    setDepth(1);
     setLineage(DEFAULT_LINEAGE);
   }, [index]);
 
@@ -68,13 +71,13 @@ export function PersonPage() {
       index < 0
         ? null
         : neighborhood(dataset, index, {
-            ancestors: mode === 'lineage' ? lineage : ancestors,
-            descendants: mode === 'lineage' ? 0 : descendants,
+            ancestors: mode === 'lineage' ? lineage : depth,
+            descendants: mode === 'lineage' ? 0 : depth,
             nodeBudget: mode === 'lineage' ? LINEAGE_NODE_BUDGET : DEFAULT_NODE_BUDGET,
             expanded,
             expansionBudget: DEFAULT_EXPANSION_BUDGET,
           }),
-    [dataset, index, mode, ancestors, descendants, lineage, expanded],
+    [dataset, index, mode, depth, lineage, expanded],
   );
 
   // Counted off the diagram itself. Showing what lies within reach instead put
@@ -196,29 +199,18 @@ export function PersonPage() {
         </div>
 
         {mode === 'neighbourhood' ? (
-          <>
-            <div className="group">
-              <label htmlFor="ancestors">Advisors</label>
-              <input
-                id="ancestors" type="range" min={0} max={MAX_ANCESTORS} value={ancestors}
-                style={{ width: 100 }}
-                onChange={(event) => setAncestors(Number(event.target.value))}
-              />
-              <strong>{ancestors}</strong>
-              <span className="faint small num">· {drawn.up.toLocaleString()}</span>
-            </div>
-
-            <div className="group">
-              <label htmlFor="descendants">Students</label>
-              <input
-                id="descendants" type="range" min={0} max={MAX_DESCENDANTS} value={descendants}
-                style={{ width: 100 }}
-                onChange={(event) => setDescendants(Number(event.target.value))}
-              />
-              <strong>{descendants}</strong>
-              <span className="faint small num">· {drawn.down.toLocaleString()}</span>
-            </div>
-          </>
+          <div className="group">
+            <label htmlFor="depth">Depth</label>
+            <input
+              id="depth" type="range" min={0} max={MAX_DEPTH} value={depth}
+              style={{ width: 150 }}
+              onChange={(event) => setDepth(Number(event.target.value))}
+            />
+            <strong>{depth}</strong>
+            <span className="faint small num">
+              · {(drawn.up + drawn.down).toLocaleString()}
+            </span>
+          </div>
         ) : (
           <div className="group">
             <label htmlFor="lineage">Generations</label>

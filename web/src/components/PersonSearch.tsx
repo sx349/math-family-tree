@@ -57,7 +57,7 @@ export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchPr
         <div>
           <label htmlFor="family">Last / family name</label>
           <input
-            id="family" type="text" autoFocus={autoFocus} placeholder="Erdős"
+            id="family" type="text" autoFocus={autoFocus}
             value={query.family ?? ''}
             onChange={(event) => update({ family: event.target.value })}
           />
@@ -65,7 +65,7 @@ export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchPr
         <div>
           <label htmlFor="given">First / given name</label>
           <input
-            id="given" type="text" placeholder="Paul"
+            id="given" type="text"
             value={query.given ?? ''}
             onChange={(event) => update({ given: event.target.value })}
           />
@@ -73,7 +73,7 @@ export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchPr
         <div>
           <label htmlFor="school">School</label>
           <input
-            id="school" type="text" placeholder="Princeton"
+            id="school" type="text"
             value={query.school ?? ''}
             onChange={(event) => update({ school: event.target.value })}
           />

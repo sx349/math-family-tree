@@ -8,7 +8,7 @@ export function SearchPage() {
   const navigate = useNavigate();
 
   return (
-    <div className="page narrow">
+    <div className="page">
       <h1>Search</h1>
       <PersonSearch autoFocus onPick={(index) => navigate(`/person/${dataset.ids[index]}`)} />
     </div>
