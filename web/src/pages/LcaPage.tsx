@@ -6,6 +6,7 @@ import { PersonSearch } from '../components/PersonSearch';
 import { useDataset } from '../DatasetContext';
 import { DEFAULT_MAX_DEPTH, MAX_TARGETS, lowestCommonAncestors } from '../lib/lca';
 import { readStored, writeStored } from '../lib/persist';
+import { usePortraitPhone } from '../lib/usePortraitPhone';
 
 const generations = (count: number) => `${count} generation${count === 1 ? '' : 's'}`;
 
@@ -30,12 +31,19 @@ export function LcaPage() {
     writeStored(STORAGE_KEY, selected.map((index) => dataset.ids[index]));
   }, [dataset, selected]);
 
+  const portraitPhone = usePortraitPhone();
+
   // Computed as soon as there are two people to compare, rather than behind a
   // button: the search costs single-digit milliseconds, and a "Find" step only
   // stood between the reader and the answer they had already asked for.
+  // Skipped entirely in portrait on a phone — there is nowhere to draw the
+  // result, so there is no reason to search for it.
   const result = useMemo(
-    () => (selected.length >= 2 ? lowestCommonAncestors(dataset, selected, DEFAULT_MAX_DEPTH) : null),
-    [dataset, selected],
+    () =>
+      portraitPhone || selected.length < 2
+        ? null
+        : lowestCommonAncestors(dataset, selected, DEFAULT_MAX_DEPTH),
+    [dataset, selected, portraitPhone],
   );
 
   const add = (index: number) =>
@@ -99,6 +107,10 @@ export function LcaPage() {
             </button>
           )}
         </div>
+      )}
+
+      {portraitPhone && selected.length >= 2 && (
+        <div className="rotate-prompt">Turn your phone sideways to see the diagram.</div>
       )}
 
       {result && (
