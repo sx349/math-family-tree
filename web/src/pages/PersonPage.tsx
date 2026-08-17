@@ -239,6 +239,12 @@ export function PersonPage() {
         )}
       </div>
 
+      <p className="muted small">
+        {mode === 'neighbourhood'
+          ? `Everyone within ${depth} step${depth === 1 ? '' : 's'}.`
+          : `Advisor chain up to ${lineageDepth} generation${lineageDepth === 1 ? '' : 's'}.`}
+      </p>
+
       {mode === 'neighbourhood' && neighborhoodView && neighborhoodView.budgetLimited && (
         <div className="notice warn">
           Stopped at <strong>{neighborhoodView.reached}</strong>{' '}

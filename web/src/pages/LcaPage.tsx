@@ -47,6 +47,7 @@ export function LcaPage() {
   return (
     <div className="page">
       <h1>Common Ancestors</h1>
+      <p className="lede">Lowest shared advisor(s), limited to {generations(DEFAULT_MAX_DEPTH)}.</p>
 
       <PersonSearch
         onPick={add}
