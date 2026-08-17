@@ -1,17 +1,34 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { GraphView, type GraphNodeSpec } from '../components/GraphView';
 import { PersonSearch } from '../components/PersonSearch';
 import { useDataset } from '../DatasetContext';
 import { DEFAULT_MAX_DEPTH, MAX_TARGETS, lowestCommonAncestors } from '../lib/lca';
+import { readStored, writeStored } from '../lib/persist';
 
 const generations = (count: number) => `${count} generation${count === 1 ? '' : 's'}`;
+
+// Stored as MGP ids, not the dense indices selected/nodes use elsewhere:
+// ids are the one identifier that stays meaningful across a data refresh,
+// where a rebuilt dataset can reassign every index.
+const STORAGE_KEY = 'lca:selected-ids';
 
 export function LcaPage() {
   const dataset = useDataset();
   const navigate = useNavigate();
-  const [selected, setSelected] = useState<number[]>([]);
+  // Restored once at mount — a person no longer in the snapshot (or a
+  // storage value from before this feature existed) is simply dropped.
+  const [selected, setSelected] = useState<number[]>(() =>
+    readStored<number[]>(STORAGE_KEY, [])
+      .map((id) => dataset.indexOfId(id))
+      .filter((index) => index >= 0)
+      .slice(0, MAX_TARGETS),
+  );
+
+  useEffect(() => {
+    writeStored(STORAGE_KEY, selected.map((index) => dataset.ids[index]));
+  }, [dataset, selected]);
 
   // Computed as soon as there are two people to compare, rather than behind a
   // button: the search costs single-digit milliseconds, and a "Find" step only

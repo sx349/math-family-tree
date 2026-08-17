@@ -14,6 +14,7 @@ import {
   lineage as lineageWalk,
   neighborhood,
 } from '../lib/neighborhood';
+import { readStored, writeStored } from '../lib/persist';
 
 /**
  * Two questions, two diagrams — and one control each.
@@ -29,26 +30,44 @@ import {
  */
 type Mode = 'neighbourhood' | 'lineage';
 
+interface StoredControls {
+  mode: Mode;
+  depth: number;
+  lineageDepth: number;
+}
+
+// Shared across every person's page, deliberately: choosing Lineage at depth
+// 6 for one mathematician and then following an advisor link is asking to
+// keep looking at the same kind of thing, not to start over at the default.
+const STORAGE_KEY = 'person:controls';
+
 export function PersonPage() {
   const dataset = useDataset();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const index = dataset.indexOfId(Number(id));
 
-  const [mode, setMode] = useState<Mode>('neighbourhood');
-  const [depth, setDepth] = useState(1);
-  const [lineageDepth, setLineageDepth] = useState(DEFAULT_LINEAGE);
+  const [controls, setControls] = useState<StoredControls>(() =>
+    readStored<StoredControls>(STORAGE_KEY, { mode: 'neighbourhood', depth: 1, lineageDepth: DEFAULT_LINEAGE }),
+  );
+  const { mode, depth, lineageDepth } = controls;
+  const setMode = (next: Mode) => setControls((current) => ({ ...current, mode: next }));
+  const setDepth = (next: number) => setControls((current) => ({ ...current, depth: next }));
+  const setLineageDepth = (next: number) => setControls((current) => ({ ...current, lineageDepth: next }));
+
+  useEffect(() => {
+    writeStored(STORAGE_KEY, controls);
+  }, [controls]);
+
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<PersonDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(true);
 
   // Opened "+N more" handles belong to the person being viewed; carrying them
-  // across a navigation would expand the wrong node.
+  // across a navigation would expand the wrong node. Mode and depth are not
+  // reset here — those follow the reader, not the person.
   useEffect(() => {
     setExpanded(new Set());
-    setMode('neighbourhood');
-    setDepth(1);
-    setLineageDepth(DEFAULT_LINEAGE);
   }, [index]);
 
   useEffect(() => {
