@@ -248,7 +248,7 @@ export function PersonPage() {
       {mode === 'neighbourhood' && neighborhoodView && neighborhoodView.budgetLimited && (
         <div className="notice warn">
           Stopped at <strong>{neighborhoodView.reached}</strong>{' '}
-          {neighborhoodView.reached === 1 ? 'generation' : 'generations'}: the next would add{' '}
+          {neighborhoodView.reached === 1 ? 'step' : 'steps'}: the next would add{' '}
           {neighborhoodView.nextRingSize.toLocaleString()} more people.
         </div>
       )}
