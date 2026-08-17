@@ -334,4 +334,21 @@ describe('lowest common ancestors', () => {
     }
     for (const target of targets) expect(touched.has(target)).toBe(true);
   });
+
+  it('heights every node by its distance to the farthest target', () => {
+    // Deng and Wang alone: three incomparable lowest common ancestors, each
+    // topping a subtree of a different depth. A target itself is height 0;
+    // Hilbert sits on Deng's side only, six hops above him.
+    const targets = [DENG, HONG_WANG].map((id) => dataset.indexOfId(id));
+    const { groups } = lowestCommonAncestors(dataset, targets);
+    const group = groups[0];
+    const heightOf = (id: number) => group.heights.get(dataset.indexOfId(id));
+
+    expect(heightOf(DENG)).toBe(0);
+    expect(heightOf(HONG_WANG)).toBe(0);
+    expect(heightOf(7404)).toBe(9); // Lindemann
+    expect(heightOf(26995)).toBe(8); // Chasles
+    expect(heightOf(123979)).toBe(13); // Stromeyer
+    expect(heightOf(HILBERT)).toBe(6); // on Deng's side only
+  });
 });

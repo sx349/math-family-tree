@@ -22,6 +22,8 @@ export type NodeKind = 'root' | 'ancestor' | 'descendant' | 'relative' | 'target
 export interface GraphNodeSpec {
   index: number;
   kind: NodeKind;
+  /** Hop count to this node's farthest target, where the caller tracks one. */
+  height?: number;
 }
 
 interface GraphViewProps {
@@ -238,15 +240,20 @@ export function GraphView({
     const present = new Set(nodes.map((n) => n.index));
     const definitions: ElementDefinition[] = [];
 
-    for (const { index, kind } of nodes) {
+    for (const { index, kind, height } of nodes) {
       const person = dataset.person(index);
       const effectiveKind = person.isStub && kind !== 'root' && kind !== 'target' ? 'stub' : kind;
+      // Where the caller tracks height, it's prefixed onto the name rather
+      // than added as a separate label: cytoscape draws one text field per
+      // node, and a long name's ellipsis would otherwise eat a trailing
+      // number before the reader ever saw it.
+      const label = height !== undefined ? `h${height} · ${dataset.displayName(index)}` : dataset.displayName(index);
       definitions.push({
         data: {
           id: `n${index}`,
           index,
           kind: effectiveKind,
-          label: dataset.displayName(index),
+          label,
           sublabel: [person.year, person.country].filter(Boolean).join(' · '),
         },
       });

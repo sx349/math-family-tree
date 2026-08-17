@@ -38,6 +38,7 @@ export function LcaPage() {
       const nodes: GraphNodeSpec[] = group.nodes.map((index) => ({
         index,
         kind: targets.has(index) ? 'target' : ancestors.has(index) ? 'lca' : 'relative',
+        height: group.heights.get(index),
       }));
       return { group, nodes };
     });
