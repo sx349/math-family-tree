@@ -13,8 +13,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { Dataset } from './dataset';
 import { lowestCommonAncestors } from './lca';
-import type { Neighborhood } from './neighborhood';
-import { LINEAGE_NODE_BUDGET, MAX_LINEAGE, neighborhood, overflowKey } from './neighborhood';
+import { LINEAGE_NODE_BUDGET, MAX_LINEAGE, lineage, neighborhood, overflowKey } from './neighborhood';
 import { fold, search } from './search';
 
 const DATA_DIR = path.resolve(__dirname, '../../../data/web');
@@ -24,6 +23,8 @@ const HILBERT = 7298;
 const GAUSS = 18231;
 const GUDERMANN = 29458;
 const DENG = 212291;
+const HONG_WANG = 263482;
+const ZHIWEI_YUN = 142226;
 
 let dataset: Dataset;
 
@@ -101,177 +102,93 @@ describe('search', () => {
 });
 
 describe('neighborhood', () => {
-  // Ground truth computed in Python straight from snapshot.jsonl.gz. The gap
-  // between the two columns is why the directions cannot share a control.
-  it('matches the independently computed profiles in both directions', () => {
-    const hilbert = dataset.indexOfId(HILBERT);
-
-    /** Running total of admitted nodes per generation, root excluded. */
-    const cumulative = (result: Neighborhood, relation: 'ancestor' | 'descendant') => {
-      const perDepth = new Array(6).fill(0);
-      for (const node of result.nodes) if (node.relation === relation) perDepth[node.depth]++;
-      let running = 0;
-      return perDepth.map((n) => (running += n));
-    };
-
-    const up = neighborhood(dataset, hilbert, {
-      ancestors: 5,
-      descendants: 0,
-      nodeBudget: Number.MAX_SAFE_INTEGER,
-    });
-    expect(cumulative(up, 'ancestor')).toEqual([0, 2, 6, 12, 19, 30]);
-
-    const down = neighborhood(dataset, hilbert, {
-      ancestors: 0,
-      descendants: 5,
-      nodeBudget: Number.MAX_SAFE_INTEGER,
-    });
-    expect(cumulative(down, 'descendant')).toEqual([0, 79, 454, 2249, 8239, 20940]);
-  });
-
   it('shows exactly advisors and students at one generation each', () => {
+    // At depth 1 there is no room for a turn, so the radius and the pure
+    // directions agree exactly.
     const hilbert = dataset.indexOfId(HILBERT);
-    const result = neighborhood(dataset, hilbert, {
-      ancestors: 1,
-      descendants: 1,
-      nodeBudget: 500,
-    });
+    const result = neighborhood(dataset, hilbert, { depth: 1, nodeBudget: 500 });
     expect(new Set(result.nodes.map((n) => n.index))).toEqual(
       new Set([hilbert, ...dataset.advisors(hilbert), ...dataset.students(hilbert)]),
     );
   });
 
-  it('never turns a path around, so no siblings or cousins appear', () => {
-    // Deng's advisor has other students. Under an undirected radius they would
-    // arrive as soon as the reader asked for two generations; under pure paths
-    // they can never arrive, because reaching them means going up then down.
+  it('turns a path around, so a sibling reached via a shared advisor appears', () => {
+    // Deng's advisor has other students. Reaching one means going up then
+    // down — exactly the turn a true radius has to allow, and pure
+    // ancestor/descendant walks never could.
     const deng = dataset.indexOfId(DENG);
     const advisor = dataset.advisors(deng)[0];
     const siblings = [...dataset.students(advisor)].filter((s) => s !== deng);
     expect(siblings.length).toBeGreaterThan(0);
 
-    const result = neighborhood(dataset, deng, {
-      ancestors: 4,
-      descendants: 4,
-      nodeBudget: 500,
-    });
-    const shown = new Set(result.nodes.map((n) => n.index));
-    for (const sibling of siblings) expect(shown.has(sibling)).toBe(false);
+    const atOne = neighborhood(dataset, deng, { depth: 1, nodeBudget: 500 });
+    const shownAtOne = new Set(atOne.nodes.map((n) => n.index));
+    for (const sibling of siblings) expect(shownAtOne.has(sibling)).toBe(false);
+
+    const atTwo = neighborhood(dataset, deng, { depth: 2, nodeBudget: 500 });
+    const shownAtTwo = new Set(atTwo.nodes.map((n) => n.index));
+    for (const sibling of siblings) expect(shownAtTwo.has(sibling)).toBe(true);
+
+    const sibling = siblings[0];
+    const node = atTwo.nodes.find((n) => n.index === sibling);
+    expect(node?.relation).toBe('relative');
   });
 
-  it('admits ancestors in full, since going up is bounded', () => {
+  it('classifies a pure ancestor as an ancestor even once turns are allowed', () => {
     const hilbert = dataset.indexOfId(HILBERT);
-    const result = neighborhood(dataset, hilbert, {
-      ancestors: 5,
-      descendants: 0,
-      nodeBudget: 200,
-    });
-    expect(result.ancestorsReached).toBe(5);
-    expect(result.budgetLimited).toBe(false);
-    expect(result.nodes).toHaveLength(31); // 30 ancestors plus Hilbert
-  });
-
-  it('stops at the last student generation that fits the budget', () => {
-    const result = neighborhood(dataset, dataset.indexOfId(HILBERT), {
-      ancestors: 0,
-      descendants: 5,
-      nodeBudget: 200,
-    });
-    // 79 students fit; their 375 further students do not.
-    expect(result.descendantsReached).toBe(1);
-    expect(result.nodes).toHaveLength(80);
-    expect(result.budgetLimited).toBe(true);
-    expect(result.nextRingSize).toBeGreaterThan(0);
+    const result = neighborhood(dataset, hilbert, { depth: 2, nodeBudget: 2000 });
+    for (const advisor of dataset.advisors(hilbert)) {
+      expect(result.nodes.find((n) => n.index === advisor)?.relation).toBe('ancestor');
+    }
   });
 
   it('never admits a partial generation', () => {
     const hilbert = dataset.indexOfId(HILBERT);
-    const limited = neighborhood(dataset, hilbert, {
-      ancestors: 0,
-      descendants: 5,
-      nodeBudget: 200,
-    });
+    const limited = neighborhood(dataset, hilbert, { depth: 5, nodeBudget: 200 });
+    expect(limited.budgetLimited).toBe(true);
     // What the budget allowed in must be exactly the generations it reached,
     // whole — identical to asking for that depth with no budget at all.
-    const whole = neighborhood(dataset, hilbert, {
-      ancestors: 0,
-      descendants: limited.descendantsReached,
-      nodeBudget: Number.MAX_SAFE_INTEGER,
-    });
+    const whole = neighborhood(dataset, hilbert, { depth: limited.reached, nodeBudget: Number.MAX_SAFE_INTEGER });
     expect(limited.nodes.map((n) => n.index).sort()).toEqual(whole.nodes.map((n) => n.index).sort());
   });
 
   it('offers no handles when the requested depth was reached', () => {
-    const result = neighborhood(dataset, dataset.indexOfId(GAUSS), {
-      ancestors: 1,
-      descendants: 1,
-      nodeBudget: 500,
-    });
+    const result = neighborhood(dataset, dataset.indexOfId(GAUSS), { depth: 1, nodeBudget: 500 });
     expect(result.budgetLimited).toBe(false);
     expect(result.overflows).toHaveLength(0);
   });
 
-  it('offers overflow handles for everything the budget hid', () => {
+  it('offers separate overflow handles for hidden advisors and hidden students', () => {
     const hilbert = dataset.indexOfId(HILBERT);
-    const result = neighborhood(dataset, hilbert, {
-      ancestors: 0,
-      descendants: 1,
-      nodeBudget: 20,
-    });
+    // Hilbert's first generation alone (2 advisors + 79 students = 81) already
+    // blows a budget of 20, so both directions get refused together and each
+    // gets its own handle off the root.
+    const result = neighborhood(dataset, hilbert, { depth: 1, nodeBudget: 20 });
     expect(result.nodes).toHaveLength(1);
-    const down = result.overflows.find((o) => o.source === hilbert);
+    const up = result.overflows.find((o) => o.source === hilbert && o.direction === 'up');
+    const down = result.overflows.find((o) => o.source === hilbert && o.direction === 'down');
+    expect(up?.hidden).toBe(dataset.advisors(hilbert).length);
     expect(down?.hidden).toBe(dataset.students(hilbert).length);
   });
 
   it('bounds how much a single overflow expansion can add', () => {
     const hilbert = dataset.indexOfId(HILBERT);
     const result = neighborhood(dataset, hilbert, {
-      ancestors: 0,
-      descendants: 1,
+      depth: 1,
       nodeBudget: 20,
       expanded: new Set([overflowKey(hilbert, 'down')]),
       expansionBudget: 10,
     });
     expect(result.nodes).toHaveLength(11); // Hilbert plus 10 students
-    const leftover = result.overflows.find((o) => o.source === hilbert);
+    const leftover = result.overflows.find((o) => o.source === hilbert && o.direction === 'down');
     expect(leftover?.hidden).toBe(dataset.students(hilbert).length - 10);
-  });
-
-  it('caps the lineage view by budget as well as by generations', () => {
-    // Hilbert, not Deng: at the ten-generation ceiling Deng's whole lineage is
-    // 22 people, so no budget worth testing with binds on it. Hilbert reaches
-    // 83, which a budget of 20 cuts well short.
-    const result = neighborhood(dataset, dataset.indexOfId(HILBERT), {
-      ancestors: MAX_LINEAGE,
-      descendants: 0,
-      nodeBudget: 20,
-    });
-    expect(result.nodes.length).toBeLessThanOrEqual(20);
-    expect(result.nextAncestorRing).toBeGreaterThan(0);
-    expect(result.budgetLimited).toBe(true);
-  });
-
-  it('lets the generation cap, not the budget, govern the lineage view', () => {
-    // The widest lineage in the snapshot reaches 160 people within MAX_LINEAGE
-    // generations. If the budget ever binds at the shipped setting, the slider
-    // stops meaning what it says — which is exactly the bug this pins down.
-    for (const id of [DENG, HILBERT, GAUSS, GUDERMANN]) {
-      const result = neighborhood(dataset, dataset.indexOfId(id), {
-        ancestors: MAX_LINEAGE,
-        descendants: 0,
-        nodeBudget: LINEAGE_NODE_BUDGET,
-      });
-      expect(result.nextAncestorRing).toBe(0);
-      expect(result.ancestorsReached).toBeLessThanOrEqual(MAX_LINEAGE);
-    }
+    // The advisor side is untouched by expanding the student handle.
+    const up = result.overflows.find((o) => o.source === hilbert && o.direction === 'up');
+    expect(up?.hidden).toBe(dataset.advisors(hilbert).length);
   });
 
   it('draws non-tree edges between admitted nodes', () => {
-    const result = neighborhood(dataset, dataset.indexOfId(HILBERT), {
-      ancestors: 2,
-      descendants: 2,
-      nodeBudget: 1000,
-    });
+    const result = neighborhood(dataset, dataset.indexOfId(HILBERT), { depth: 2, nodeBudget: 1000 });
     const admitted = new Set(result.nodes.map((n) => n.index));
     let expected = 0;
     for (const index of admitted) {
@@ -280,6 +197,52 @@ describe('neighborhood', () => {
     expect(result.edges).toHaveLength(expected);
     for (const [advisor, student] of result.edges) {
       expect(admitted.has(advisor) && admitted.has(student)).toBe(true);
+    }
+  });
+});
+
+describe('lineage', () => {
+  // Ground truth computed in Python straight from snapshot.jsonl.gz.
+  it('matches the independently computed ancestor profile', () => {
+    const hilbert = dataset.indexOfId(HILBERT);
+
+    /** Running total of admitted nodes per generation, root excluded. */
+    const cumulative = (result: ReturnType<typeof lineage>) => {
+      const perDepth = new Array(6).fill(0);
+      for (const node of result.nodes) if (node.depth > 0) perDepth[node.depth]++;
+      let running = 0;
+      return perDepth.map((n) => (running += n));
+    };
+
+    const result = lineage(dataset, hilbert, { generations: 5, nodeBudget: Number.MAX_SAFE_INTEGER });
+    expect(cumulative(result)).toEqual([0, 2, 6, 12, 19, 30]);
+  });
+
+  it('admits ancestors in full, since going up is bounded', () => {
+    const hilbert = dataset.indexOfId(HILBERT);
+    const result = lineage(dataset, hilbert, { generations: 5, nodeBudget: 200 });
+    expect(result.reached).toBe(5);
+    expect(result.budgetLimited).toBe(false);
+    expect(result.nodes).toHaveLength(31); // 30 ancestors plus Hilbert
+  });
+
+  it('caps the lineage view by budget as well as by generations', () => {
+    // Hilbert, not Deng: at the ten-generation ceiling Deng's whole lineage is
+    // 22 people, so no budget worth testing with binds on it. Hilbert reaches
+    // 83, which a budget of 20 cuts well short.
+    const result = lineage(dataset, dataset.indexOfId(HILBERT), { generations: MAX_LINEAGE, nodeBudget: 20 });
+    expect(result.nodes.length).toBeLessThanOrEqual(20);
+    expect(result.budgetLimited).toBe(true);
+  });
+
+  it('lets the generation cap, not the budget, govern the lineage view', () => {
+    // The widest lineage in the snapshot reaches 160 people within MAX_LINEAGE
+    // generations. If the budget ever binds at the shipped setting, the slider
+    // stops meaning what it says — which is exactly the bug this pins down.
+    for (const id of [DENG, HILBERT, GAUSS, GUDERMANN]) {
+      const result = lineage(dataset, dataset.indexOfId(id), { generations: MAX_LINEAGE, nodeBudget: LINEAGE_NODE_BUDGET });
+      expect(result.budgetLimited).toBe(false);
+      expect(result.reached).toBeLessThanOrEqual(MAX_LINEAGE);
     }
   });
 });
@@ -350,5 +313,42 @@ describe('lowest common ancestors', () => {
     // Gauß is 11 hops above Deng, so a limit of 5 cannot connect them.
     expect(lowestCommonAncestors(dataset, targets, 5).groups).toHaveLength(0);
     expect(lowestCommonAncestors(dataset, targets, 12).groups).toHaveLength(1);
+  });
+
+  it('connects every target even when two of their paths share ancestors before diverging', () => {
+    // Wang's and Yun's paths up to Chasles both pass through Newton and E. H.
+    // Moore before splitting. pathNodes used to skip re-entering a node once
+    // any target's path had already added it, which severed whichever path
+    // got walked second right at the fork and left that target with no edge
+    // to the rest of the group.
+    const targets = [DENG, HONG_WANG, ZHIWEI_YUN].map((id) => dataset.indexOfId(id));
+    const { groups } = lowestCommonAncestors(dataset, targets);
+    expect(groups).toHaveLength(1);
+    const group = groups[0];
+    expect(group.ancestors.map((i) => dataset.displayName(i))).toEqual(['Chasles, Michel']);
+
+    const touched = new Set<number>();
+    for (const [a, b] of group.edges) {
+      touched.add(a);
+      touched.add(b);
+    }
+    for (const target of targets) expect(touched.has(target)).toBe(true);
+  });
+
+  it('heights every node by its distance to the farthest target', () => {
+    // Deng and Wang alone: three incomparable lowest common ancestors, each
+    // topping a subtree of a different depth. A target itself is height 0;
+    // Hilbert sits on Deng's side only, six hops above him.
+    const targets = [DENG, HONG_WANG].map((id) => dataset.indexOfId(id));
+    const { groups } = lowestCommonAncestors(dataset, targets);
+    const group = groups[0];
+    const heightOf = (id: number) => group.heights.get(dataset.indexOfId(id));
+
+    expect(heightOf(DENG)).toBe(0);
+    expect(heightOf(HONG_WANG)).toBe(0);
+    expect(heightOf(7404)).toBe(9); // Lindemann
+    expect(heightOf(26995)).toBe(8); // Chasles
+    expect(heightOf(123979)).toBe(13); // Stromeyer
+    expect(heightOf(HILBERT)).toBe(6); // on Deng's side only
   });
 });

@@ -37,6 +37,13 @@ export interface LcaGroup {
   edges: Array<[number, number]>;
   /** Per ancestor, the hop count down to each target, aligned with `targets`. */
   distances: Array<{ ancestor: number; hops: number[] }>;
+  /**
+   * Per node in `nodes`, the hop count to its farthest target — 0 at a target
+   * itself, and otherwise one more than the tallest of its children in the
+   * drawn subgraph. Two nodes both labelled "lowest" can still sit at
+   * different depths in the tree below them; this says how much.
+   */
+  heights: Map<number, number>;
 }
 
 export interface LcaResult {
@@ -113,16 +120,18 @@ function pathNodes(
   into.add(ancestor);
   let frontier = [ancestor];
   for (let hop = remaining; hop > 0; hop--) {
-    const next: number[] = [];
+    // A Set, not a filter on `!into.has`: another target's path may already
+    // have added this node (paths converge before a common ancestor and
+    // diverge after), and skipping it here would break *this* path in two
+    // without the node itself ever being missing from `into`.
+    const next = new Set<number>();
     for (const index of frontier) {
       for (const student of dataset.students(index)) {
-        if (distances.get(student) === hop - 1 && !into.has(student)) {
-          into.add(student);
-          next.push(student);
-        }
+        if (distances.get(student) === hop - 1) next.add(student);
       }
     }
-    frontier = next;
+    for (const student of next) into.add(student);
+    frontier = [...next];
   }
 }
 
@@ -207,6 +216,21 @@ export function lowestCommonAncestors(
       }
     }
 
+    // A node's height is its distance to whichever member is farthest below
+    // it — the same number the recursive "max(child) + 1" walk down the
+    // subgraph would produce, but read directly off the up-distances already
+    // computed for each member, since those are exactly the shortest-path
+    // lengths the subgraph's edges were built from.
+    const heights = new Map<number, number>();
+    for (const index of nodes) {
+      let height = 0;
+      for (const ancestry of memberAncestries) {
+        const hop = ancestry.get(index);
+        if (hop !== undefined && hop > height) height = hop;
+      }
+      heights.set(index, height);
+    }
+
     groups.push({
       targets: members,
       // Nearest first, by total distance to the selected people.
@@ -221,6 +245,7 @@ export function lowestCommonAncestors(
         ancestor,
         hops: memberAncestries.map((ancestry) => ancestry.get(ancestor) ?? -1),
       })),
+      heights,
     });
   }
 

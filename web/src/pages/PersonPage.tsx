@@ -11,7 +11,7 @@ import {
   LINEAGE_NODE_BUDGET,
   MAX_DEPTH,
   MAX_LINEAGE,
-  drawnCounts,
+  lineage as lineageWalk,
   neighborhood,
 } from '../lib/neighborhood';
 
@@ -37,7 +37,7 @@ export function PersonPage() {
 
   const [mode, setMode] = useState<Mode>('neighbourhood');
   const [depth, setDepth] = useState(1);
-  const [lineage, setLineage] = useState(DEFAULT_LINEAGE);
+  const [lineageDepth, setLineageDepth] = useState(DEFAULT_LINEAGE);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<PersonDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(true);
@@ -48,7 +48,7 @@ export function PersonPage() {
     setExpanded(new Set());
     setMode('neighbourhood');
     setDepth(1);
-    setLineage(DEFAULT_LINEAGE);
+    setLineageDepth(DEFAULT_LINEAGE);
   }, [index]);
 
   useEffect(() => {
@@ -66,24 +66,34 @@ export function PersonPage() {
     };
   }, [dataset, index]);
 
-  const view = useMemo(
+  const neighborhoodView = useMemo(
     () =>
-      index < 0
+      index < 0 || mode !== 'neighbourhood'
         ? null
         : neighborhood(dataset, index, {
-            ancestors: mode === 'lineage' ? lineage : depth,
-            descendants: mode === 'lineage' ? 0 : depth,
-            nodeBudget: mode === 'lineage' ? LINEAGE_NODE_BUDGET : DEFAULT_NODE_BUDGET,
+            depth,
+            nodeBudget: DEFAULT_NODE_BUDGET,
             expanded,
             expansionBudget: DEFAULT_EXPANSION_BUDGET,
           }),
-    [dataset, index, mode, depth, lineage, expanded],
+    [dataset, index, mode, depth, expanded],
   );
 
-  // Counted off the diagram itself. Showing what lies within reach instead put
-  // a number beside the slider that the picture below it contradicted whenever
-  // anything stopped the walk short.
-  const drawn = view ? drawnCounts(view) : { up: 0, down: 0 };
+  const lineageView = useMemo(
+    () =>
+      index < 0 || mode !== 'lineage'
+        ? null
+        : lineageWalk(dataset, index, { generations: lineageDepth, nodeBudget: LINEAGE_NODE_BUDGET }),
+    [dataset, index, mode, lineageDepth],
+  );
+
+  // Counted off the diagram itself, root excluded. Showing what lies within
+  // reach instead put a number beside the slider that the picture below it
+  // contradicted whenever anything stopped the walk short.
+  const drawnCount =
+    mode === 'neighbourhood'
+      ? Math.max(0, (neighborhoodView?.nodes.length ?? 1) - 1)
+      : Math.max(0, (lineageView?.nodes.length ?? 1) - 1);
 
   if (index < 0) {
     return (
@@ -104,10 +114,10 @@ export function PersonPage() {
   const advisors = [...dataset.advisors(index)];
   const students = [...dataset.students(index)];
 
-  const nodes: GraphNodeSpec[] = (view?.nodes ?? []).map((node) => ({
-    index: node.index,
-    kind: node.relation,
-  }));
+  const nodes: GraphNodeSpec[] =
+    mode === 'neighbourhood'
+      ? (neighborhoodView?.nodes ?? []).map((node) => ({ index: node.index, kind: node.relation }))
+      : (lineageView?.nodes ?? []).map((node) => ({ index: node.index, kind: node.index === index ? 'root' : 'ancestor' }));
 
   const toggleExpand = (key: string) =>
     setExpanded((current) => new Set(current).add(key));
@@ -207,20 +217,18 @@ export function PersonPage() {
               onChange={(event) => setDepth(Number(event.target.value))}
             />
             <strong>{depth}</strong>
-            <span className="faint small num">
-              · {(drawn.up + drawn.down).toLocaleString()}
-            </span>
+            <span className="faint small num">· {drawnCount.toLocaleString()}</span>
           </div>
         ) : (
           <div className="group">
             <label htmlFor="lineage">Generations</label>
             <input
-              id="lineage" type="range" min={1} max={MAX_LINEAGE} value={lineage}
+              id="lineage" type="range" min={1} max={MAX_LINEAGE} value={lineageDepth}
               style={{ width: 150 }}
-              onChange={(event) => setLineage(Number(event.target.value))}
+              onChange={(event) => setLineageDepth(Number(event.target.value))}
             />
-            <strong>{lineage}</strong>
-            <span className="faint small num">· {drawn.up.toLocaleString()}</span>
+            <strong>{lineageDepth}</strong>
+            <span className="faint small num">· {drawnCount.toLocaleString()}</span>
           </div>
         )}
 
@@ -231,27 +239,32 @@ export function PersonPage() {
         )}
       </div>
 
-      {view && view.nextAncestorRing > 0 && (
+      <p className="muted small">
+        {mode === 'neighbourhood'
+          ? `Everyone within ${depth} step${depth === 1 ? '' : 's'}.`
+          : `Advisor chain up to ${lineageDepth} generation${lineageDepth === 1 ? '' : 's'}.`}
+      </p>
+
+      {mode === 'neighbourhood' && neighborhoodView && neighborhoodView.budgetLimited && (
         <div className="notice warn">
-          Stopped at <strong>{view.ancestorsReached}</strong>{' '}
-          {view.ancestorsReached === 1 ? 'generation' : 'generations'} of advisors: the next
-          would add {view.nextAncestorRing.toLocaleString()} more people.
+          Stopped at <strong>{neighborhoodView.reached}</strong>{' '}
+          {neighborhoodView.reached === 1 ? 'step' : 'steps'}: the next would add{' '}
+          {neighborhoodView.nextRingSize.toLocaleString()} more people.
         </div>
       )}
 
-      {view && view.nextRingSize > 0 && (
+      {mode === 'lineage' && lineageView && lineageView.budgetLimited && (
         <div className="notice warn">
-          Stopped at <strong>{view.descendantsReached}</strong>{' '}
-          {view.descendantsReached === 1 ? 'generation' : 'generations'} of students of the{' '}
-          {view.requestedDescendants} requested: the next would add{' '}
-          {view.nextRingSize.toLocaleString()} more people.
+          Stopped at <strong>{lineageView.reached}</strong>{' '}
+          {lineageView.reached === 1 ? 'generation' : 'generations'} of advisors: the next
+          would add {lineageView.nextRingSize.toLocaleString()} more people.
         </div>
       )}
 
       <GraphView
         nodes={nodes}
-        edges={view?.edges ?? []}
-        overflows={view?.overflows ?? []}
+        edges={(mode === 'neighbourhood' ? neighborhoodView?.edges : lineageView?.edges) ?? []}
+        overflows={neighborhoodView?.overflows ?? []}
         onSelect={(target) => navigate(`/person/${dataset.ids[target]}`)}
         onExpand={toggleExpand}
         focusIndex={index}
