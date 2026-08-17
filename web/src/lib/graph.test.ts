@@ -328,11 +328,69 @@ describe('lowest common ancestors', () => {
     expect(group.ancestors.map((i) => dataset.displayName(i))).toEqual(['Chasles, Michel']);
 
     const touched = new Set<number>();
-    for (const [a, b] of group.edges) {
-      touched.add(a);
-      touched.add(b);
+    for (const { from, to } of group.edges) {
+      touched.add(from);
+      touched.add(to);
     }
     for (const target of targets) expect(touched.has(target)).toBe(true);
+  });
+
+  it('tags each edge with which targets actually route through it', () => {
+    // Wang's and Yun's paths share the Chasles -> Newton -> Moore E.H. run
+    // before forking; Deng's takes a disjoint route via Darboux. An edge on
+    // the shared run should list both Wang and Yun as owners and not Deng;
+    // an edge past the fork should list only the one target it leads to.
+    const deng = dataset.indexOfId(DENG);
+    const wang = dataset.indexOfId(HONG_WANG);
+    const yun = dataset.indexOfId(ZHIWEI_YUN);
+    const { groups } = lowestCommonAncestors(dataset, [deng, wang, yun]);
+    const group = groups[0];
+    const memberOf = (id: number) => group.targets.indexOf(id);
+    const edgeNamed = (fromName: string, toName: string) =>
+      group.edges.find(
+        (e) => dataset.displayName(e.from).startsWith(fromName) && dataset.displayName(e.to).startsWith(toName),
+      );
+
+    const shared = edgeNamed('Newton', 'Moore, E. H.');
+    expect(shared?.owners.sort()).toEqual([memberOf(wang), memberOf(yun)].sort());
+
+    const wangOnly = edgeNamed('Moore, R. L.', 'Dyer');
+    expect(wangOnly?.owners).toEqual([memberOf(wang)]);
+
+    const yunOnly = edgeNamed('Birkhoff', 'Bourgin');
+    expect(yunOnly?.owners).toEqual([memberOf(yun)]);
+
+    const dengOnly = edgeNamed('Chasles', 'Darboux');
+    expect(dengOnly?.owners).toEqual([memberOf(deng)]);
+  });
+
+  it('derives node ownership from incident edges, consistently with them', () => {
+    // A node's owners should be exactly the union of what its own edges
+    // report — never a colour a node's lines don't actually show.
+    const deng = dataset.indexOfId(DENG);
+    const wang = dataset.indexOfId(HONG_WANG);
+    const yun = dataset.indexOfId(ZHIWEI_YUN);
+    const { groups } = lowestCommonAncestors(dataset, [deng, wang, yun]);
+    const group = groups[0];
+    const memberOf = (id: number) => group.targets.indexOf(id);
+    const nodeNamed = (name: string) => group.nodes.find((i) => dataset.displayName(i).startsWith(name));
+
+    // E. H. Moore sits on the shared Wang/Yun run, then forks — so it owes
+    // its position to both, same as the edge running into it.
+    const mooreEH = nodeNamed('Moore, E. H.');
+    expect(group.nodeOwners.get(mooreEH!)?.sort()).toEqual([memberOf(wang), memberOf(yun)].sort());
+
+    // Each target itself is owned only by itself.
+    expect(group.nodeOwners.get(deng)).toEqual([memberOf(deng)]);
+    expect(group.nodeOwners.get(wang)).toEqual([memberOf(wang)]);
+    expect(group.nodeOwners.get(yun)).toEqual([memberOf(yun)]);
+
+    // Cross-check every node against its own incident edges directly.
+    for (const node of group.nodes) {
+      const fromEdges = group.edges.filter((e) => e.from === node || e.to === node);
+      const expected = new Set(fromEdges.flatMap((e) => e.owners));
+      expect(new Set(group.nodeOwners.get(node))).toEqual(expected);
+    }
   });
 
   it('heights every node by its distance to the farthest target', () => {

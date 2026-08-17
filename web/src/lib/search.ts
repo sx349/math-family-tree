@@ -34,7 +34,7 @@ export interface SearchResult {
   scanned: boolean;
 }
 
-export const DEFAULT_RESULT_LIMIT = 300;
+export const DEFAULT_RESULT_LIMIT = 100;
 
 // Characters NFKD leaves alone but searchers expect to be interchangeable with
 // their ASCII forms. Must stay in sync with FOLD_MAP in pipeline/build_web.py.

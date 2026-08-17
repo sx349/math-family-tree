@@ -39,6 +39,7 @@ export function LcaPage() {
         index,
         kind: targets.has(index) ? 'target' : ancestors.has(index) ? 'lca' : 'relative',
         height: group.heights.get(index),
+        owners: group.nodeOwners.get(index),
       }));
       return { group, nodes };
     });
@@ -47,7 +48,9 @@ export function LcaPage() {
   return (
     <div className="page">
       <h1>Common Ancestors</h1>
-      <p className="lede">Lowest shared advisor(s), limited to {generations(DEFAULT_MAX_DEPTH)}.</p>
+      <p className="lede">
+        Closest shared advisor(s) of up to {MAX_TARGETS} names, within {generations(DEFAULT_MAX_DEPTH)}.
+      </p>
 
       <PersonSearch
         onPick={add}

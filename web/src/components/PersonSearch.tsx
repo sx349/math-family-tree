@@ -46,6 +46,15 @@ export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchPr
     setSubmitted(null);
   };
 
+  const toggleAdvanced = () =>
+    setShowAdvanced((visible) => {
+      // Collapsing drops whatever the reader typed in the hidden fields —
+      // otherwise a value they can no longer see would go on narrowing
+      // every search until they reopened the panel to find it.
+      if (visible) update({ country: undefined, yearFrom: undefined, yearTo: undefined, msc: undefined });
+      return !visible;
+    });
+
   return (
     <form
       onSubmit={(event) => {
@@ -83,7 +92,7 @@ export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchPr
       {showAdvanced && (
         <div className="field-grid" style={{ marginTop: 22 }}>
           <div>
-            <label htmlFor="country">Country</label>
+            <label htmlFor="country">School country</label>
             <input
               id="country" type="text" value={query.country ?? ''}
               onChange={(event) => update({ country: event.target.value })}
@@ -91,17 +100,44 @@ export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchPr
           </div>
           <div>
             <label htmlFor="yearFrom">Degree year from</label>
-            <input
-              id="yearFrom" type="number" value={query.yearFrom ?? ''}
-              onChange={(event) => update({ yearFrom: Number(event.target.value) || undefined })}
-            />
+            <div className="year-field">
+              <input
+                id="yearFrom" type="number" inputMode="numeric" value={query.yearFrom ?? ''}
+                onChange={(event) => update({ yearFrom: Number(event.target.value) || undefined })}
+              />
+              {/* The browser's own spinner starts stepping from zero, which
+                  for a year field means clicking it into the 1900s one year
+                  at a time. These start from a plausible degree year instead. */}
+              <div className="year-steppers">
+                <button
+                  type="button" tabIndex={-1} aria-label="Later year"
+                  onClick={() => update({ yearFrom: (query.yearFrom ?? 2000) + 1 })}
+                >▲</button>
+                <button
+                  type="button" tabIndex={-1} aria-label="Earlier year"
+                  onClick={() => update({ yearFrom: (query.yearFrom ?? 2000) - 1 })}
+                >▼</button>
+              </div>
+            </div>
           </div>
           <div>
             <label htmlFor="yearTo">Degree year to</label>
-            <input
-              id="yearTo" type="number" value={query.yearTo ?? ''}
-              onChange={(event) => update({ yearTo: Number(event.target.value) || undefined })}
-            />
+            <div className="year-field">
+              <input
+                id="yearTo" type="number" inputMode="numeric" value={query.yearTo ?? ''}
+                onChange={(event) => update({ yearTo: Number(event.target.value) || undefined })}
+              />
+              <div className="year-steppers">
+                <button
+                  type="button" tabIndex={-1} aria-label="Later year"
+                  onClick={() => update({ yearTo: (query.yearTo ?? 2000) + 1 })}
+                >▲</button>
+                <button
+                  type="button" tabIndex={-1} aria-label="Earlier year"
+                  onClick={() => update({ yearTo: (query.yearTo ?? 2000) - 1 })}
+                >▼</button>
+              </div>
+            </div>
           </div>
           <div>
             <label htmlFor="msc">Subject</label>
@@ -122,7 +158,7 @@ export function PersonSearch({ renderAction, onPick, autoFocus }: PersonSearchPr
 
       <div className="controls">
         <button className="button" type="submit" disabled={!hasInput}>Search</button>
-        <button className="button quiet" type="button" onClick={() => setShowAdvanced((v) => !v)}>
+        <button className="button quiet" type="button" onClick={toggleAdvanced}>
           {showAdvanced ? 'Fewer fields' : 'More fields'}
         </button>
         {(hasInput || submitted) && (

@@ -131,11 +131,7 @@ export function PersonPage() {
       </p>
 
       {person.isStub ? (
-        <div className="notice">
-          No record for this person in the snapshot — only their name and who they connect to.{' '}
-          <a href={dataset.mgpUrl(index)} target="_blank" rel="noreferrer">Their MGP page</a>{' '}
-          may have more.
-        </div>
+        <div className="notice">No further details for this person in the snapshot.</div>
       ) : (
         <ul className="facts" style={{ marginBottom: 8 }}>
           {detail?.degrees.map((degree, position) => (
@@ -188,26 +184,28 @@ export function PersonPage() {
 
       <h2>Genealogy</h2>
 
-      <div className="controls">
-        <div className="group">
-          <button
-            className={mode === 'neighbourhood' ? 'button' : 'button quiet'}
-            type="button"
-            aria-pressed={mode === 'neighbourhood'}
-            onClick={() => setMode('neighbourhood')}
-          >
-            Neighbourhood
-          </button>
-          <button
-            className={mode === 'lineage' ? 'button' : 'button quiet'}
-            type="button"
-            aria-pressed={mode === 'lineage'}
-            onClick={() => setMode('lineage')}
-          >
-            Lineage
-          </button>
-        </div>
+      {/* The mode is the first choice a reader makes here, and the two
+          questions it answers are not variations on each other — so it gets
+          its own row, set apart from the depth control that only refines
+          whichever one is picked. */}
+      <div className="mode-toggle">
+        <button
+          type="button"
+          aria-pressed={mode === 'neighbourhood'}
+          onClick={() => setMode('neighbourhood')}
+        >
+          Neighbourhood
+        </button>
+        <button
+          type="button"
+          aria-pressed={mode === 'lineage'}
+          onClick={() => setMode('lineage')}
+        >
+          Lineage
+        </button>
+      </div>
 
+      <div className="controls">
         {mode === 'neighbourhood' ? (
           <div className="group">
             <label htmlFor="depth">Depth</label>
@@ -232,18 +230,18 @@ export function PersonPage() {
           </div>
         )}
 
+        <span className="muted small">
+          {mode === 'neighbourhood'
+            ? `Everyone within ${depth} step${depth === 1 ? '' : 's'}.`
+            : `Advisor chain up to ${lineageDepth} generation${lineageDepth === 1 ? '' : 's'}.`}
+        </span>
+
         {expanded.size > 0 && (
           <button className="button quiet" type="button" onClick={() => setExpanded(new Set())}>
             Reset
           </button>
         )}
       </div>
-
-      <p className="muted small">
-        {mode === 'neighbourhood'
-          ? `Everyone within ${depth} step${depth === 1 ? '' : 's'}.`
-          : `Advisor chain up to ${lineageDepth} generation${lineageDepth === 1 ? '' : 's'}.`}
-      </p>
 
       {mode === 'neighbourhood' && neighborhoodView && neighborhoodView.budgetLimited && (
         <div className="notice warn">
@@ -263,7 +261,9 @@ export function PersonPage() {
 
       <GraphView
         nodes={nodes}
-        edges={(mode === 'neighbourhood' ? neighborhoodView?.edges : lineageView?.edges) ?? []}
+        edges={((mode === 'neighbourhood' ? neighborhoodView?.edges : lineageView?.edges) ?? []).map(
+          ([from, to]) => ({ from, to }),
+        )}
         overflows={neighborhoodView?.overflows ?? []}
         onSelect={(target) => navigate(`/person/${dataset.ids[target]}`)}
         onExpand={toggleExpand}

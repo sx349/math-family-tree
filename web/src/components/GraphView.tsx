@@ -24,12 +24,31 @@ export interface GraphNodeSpec {
   kind: NodeKind;
   /** Hop count to this node's farthest target, where the caller tracks one. */
   height?: number;
+  /**
+   * Indices of the selected people whose path actually runs through this
+   * node, where the caller tracks that — see `GraphEdgeSpec.owners`. Ignored
+   * for a 'lca' node: the answer stays neutral ink regardless of who owns
+   * the edges leading to it.
+   */
+  owners?: number[];
+}
+
+export interface GraphEdgeSpec {
+  from: number;
+  to: number;
+  /**
+   * Indices of the selected people whose path actually runs through this
+   * edge, where the caller tracks that. Blended into one colour unique to
+   * that combination, so a reader can trace which branch is whose without
+   * following every line by eye; an edge with none (a real link that isn't
+   * on any single tracked path) is drawn plain.
+   */
+  owners?: number[];
 }
 
 interface GraphViewProps {
   nodes: GraphNodeSpec[];
-  /** Advisor -> student. */
-  edges: Array<[number, number]>;
+  edges: GraphEdgeSpec[];
   overflows?: OverflowHandle[];
   onSelect?: (index: number) => void;
   onExpand?: (key: string) => void;
@@ -53,6 +72,38 @@ interface GraphViewProps {
 const NODE_FONT_SIZE = 11;
 const MIN_ZOOMED_FONT_SIZE = 7;
 const MIN_LEGIBLE_ZOOM = MIN_ZOOMED_FONT_SIZE / NODE_FONT_SIZE;
+
+/**
+ * One muted ink per selection slot, on the LCA page only — every other view
+ * passes edges with no `owners`, so this never fires there. A dash rhythm
+ * per target was tried first and dropped: on a diagram dense enough to need
+ * this at all, a rhythm needs real scrutiny to place, where a hue is picked
+ * out at a glance. Kept off-saturation to still read as a printed plate
+ * rather than a chart.
+ */
+const TARGET_INKS: Array<[number, number, number]> = [
+  [58, 90, 122], // indigo
+  [63, 107, 74], // forest
+  [166, 124, 46], // ochre
+  [107, 69, 112], // plum
+  [47, 111, 106], // teal
+];
+
+/**
+ * An edge shared by several targets is drawn in the average of their inks
+ * rather than picking one — the same convergence a Venn diagram shows by
+ * overlapping fills, done with a single line. Converges toward a muddy
+ * neutral as more targets share it, which is the right direction: an edge
+ * everyone's path uses is exactly the backbone structure that colour isn't
+ * meant to be claiming credit for.
+ */
+function blendInk(owners: number[]): string {
+  const [r, g, b] = owners
+    .map((i) => TARGET_INKS[i % TARGET_INKS.length])
+    .reduce(([ar, ag, ab], [r, g, b]) => [ar + r, ag + g, ab + b], [0, 0, 0])
+    .map((sum) => Math.round(sum / owners.length));
+  return `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+}
 
 /**
  * A lineage is tall and narrow, and taller than it first looks: dagre ranks by
@@ -240,13 +291,19 @@ function readPalette(): Record<string, string> {
 }
 
 /**
- * One ink for structure, one oxblood for the people the reader asked about.
- * Everything else is distinguished by stroke weight and line style — the
- * register of a printed plate rather than of a colour-coded chart.
+ * One ink for structure, one oxblood for the people the reader asked about —
+ * unless the caller tracks per-target colour (the LCA page), in which case a
+ * target takes its own colour instead of the shared oxblood, and any node on
+ * a coloured path takes the blend of whoever's path runs through it. The
+ * answer itself ('lca') is the one thing colour never touches: it stays
+ * neutral ink regardless of which paths lead to it, since it isn't any one
+ * target's to claim any more than a shared edge is.
  */
-function strokeFor(kind: string, palette: Record<string, string>): string {
-  if (kind === 'root' || kind === 'target') return palette.oxblood;
+function strokeFor(kind: string, pathColor: string | undefined, palette: Record<string, string>): string {
   if (kind === 'stub') return palette.inkFaint;
+  if (kind === 'lca') return palette.ink;
+  if (pathColor) return pathColor;
+  if (kind === 'root' || kind === 'target') return palette.oxblood;
   return palette.ink;
 }
 
@@ -275,7 +332,7 @@ export function GraphView({
     const present = new Set(nodes.map((n) => n.index));
     const definitions: ElementDefinition[] = [];
 
-    for (const { index, kind, height } of nodes) {
+    for (const { index, kind, height, owners } of nodes) {
       const person = dataset.person(index);
       const effectiveKind = person.isStub && kind !== 'root' && kind !== 'target' ? 'stub' : kind;
       // Where the caller tracks height, it's prefixed onto the name rather
@@ -283,6 +340,7 @@ export function GraphView({
       // node, and a long name's ellipsis would otherwise eat a trailing
       // number before the reader ever saw it.
       const label = height !== undefined ? `(${height}) ${dataset.displayName(index)}` : dataset.displayName(index);
+      const pathColor = owners && owners.length > 0 ? blendInk(owners) : undefined;
       definitions.push({
         data: {
           id: `n${index}`,
@@ -290,13 +348,22 @@ export function GraphView({
           kind: effectiveKind,
           label,
           sublabel: [person.year, person.country].filter(Boolean).join(' · '),
+          ...(pathColor ? { pathColor } : {}),
         },
       });
     }
 
-    for (const [advisor, student] of edges) {
-      if (present.has(advisor) && present.has(student)) {
-        definitions.push({ data: { id: `e${advisor}-${student}`, source: `n${advisor}`, target: `n${student}` } });
+    for (const { from, to, owners } of edges) {
+      if (present.has(from) && present.has(to)) {
+        const pathColor = owners && owners.length > 0 ? blendInk(owners) : undefined;
+        definitions.push({
+          data: {
+            id: `e${from}-${to}`,
+            source: `n${from}`,
+            target: `n${to}`,
+            ...(pathColor ? { pathColor } : {}),
+          },
+        });
       }
     }
 
@@ -342,9 +409,11 @@ export function GraphView({
             'background-color': palette.paper,
             'background-opacity': 1,
             'border-width': 1,
-            'border-color': (element) => strokeFor(element.data('kind') as string, palette),
+            'border-color': (element) =>
+              strokeFor(element.data('kind') as string, element.data('pathColor') as string | undefined, palette),
             label: 'data(label)',
-            color: palette.ink,
+            color: (element: cytoscape.NodeSingular) =>
+              strokeFor(element.data('kind') as string, element.data('pathColor') as string | undefined, palette),
             'font-family': "Charter, 'Bitstream Charter', 'Sitka Text', Cambria, Georgia, serif",
             'font-size': NODE_FONT_SIZE,
             'text-valign': 'center',
@@ -364,11 +433,10 @@ export function GraphView({
           },
         },
         {
-          // The people the reader asked about are ruled in oxblood; the ancestor
-          // that answers the question is ruled heavier in the same ink as the
-          // rest of the drawing. Weight and colour do separate jobs.
+          // The people the reader asked about are ruled heavier than the rest
+          // of the drawing; strokeFor already decided their colour above.
           selector: 'node[kind = "root"], node[kind = "target"]',
-          style: { 'border-width': 1.6, color: palette.oxblood, 'font-weight': 'bold' },
+          style: { 'border-width': 1.6, 'font-weight': 'bold' },
         },
         {
           selector: 'node[kind = "lca"]',
@@ -398,8 +466,8 @@ export function GraphView({
           selector: 'edge',
           style: {
             width: 0.8,
-            'line-color': palette.inkSoft,
-            'target-arrow-color': palette.inkSoft,
+            'line-color': (element) => (element.data('pathColor') as string | undefined) ?? palette.inkSoft,
+            'target-arrow-color': (element) => (element.data('pathColor') as string | undefined) ?? palette.inkSoft,
             'target-arrow-shape': 'triangle',
             'arrow-scale': 0.6,
             'curve-style': 'bezier',

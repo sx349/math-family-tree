@@ -26,6 +26,23 @@ import type { Dataset } from './dataset';
 export const DEFAULT_MAX_DEPTH = 30;
 export const MAX_TARGETS = 5;
 
+export interface LcaEdge {
+  from: number;
+  to: number;
+  /**
+   * Which selected person's shortest path to an ancestor actually runs
+   * through this edge, as an index into the full up-to-`MAX_TARGETS`
+   * selection passed to `lowestCommonAncestors` — not into this group's own
+   * `targets`, which is only ever a subset renumbered from zero. Keeping the
+   * index global means the same person gets the same index in every group of
+   * a forest. Empty when the edge merely connects two admitted nodes without
+   * lying on any tracked path — real structure worth drawing, but not part
+   * of the answer to "how does X connect to the ancestor" for any particular
+   * X.
+   */
+  owners: number[];
+}
+
 export interface LcaGroup {
   /** The queried people in this group. */
   targets: number[];
@@ -34,7 +51,7 @@ export interface LcaGroup {
   /** Every node on a shortest path from an ancestor down to a target. */
   nodes: number[];
   /** Advisor -> student, restricted to `nodes`. */
-  edges: Array<[number, number]>;
+  edges: LcaEdge[];
   /** Per ancestor, the hop count down to each target, aligned with `targets`. */
   distances: Array<{ ancestor: number; hops: number[] }>;
   /**
@@ -44,6 +61,13 @@ export interface LcaGroup {
    * different depths in the tree below them; this says how much.
    */
   heights: Map<number, number>;
+  /**
+   * Per node in `nodes`, the union of its incident edges' `owners` — derived
+   * from `edges` rather than tracked separately, so a node's colour can never
+   * disagree with the lines actually touching it. Empty for a node with no
+   * owned edges at all (in practice, only ever an ancestor itself).
+   */
+  nodeOwners: Map<number, number[]>;
 }
 
 export interface LcaResult {
@@ -101,18 +125,22 @@ function minimalAncestors(
 }
 
 /**
- * Nodes on any shortest path from `ancestor` down to `target`.
+ * Nodes and edges on any shortest path from `ancestor` down to `target`.
  *
  * Walks down from the ancestor, keeping only steps that strictly close the
  * remaining distance to the target. Because `distances` holds the up-distance
  * from the target, a child is on a shortest path exactly when its distance is
- * one less than its parent's.
+ * one less than its parent's. Every edge walked is tagged with `member`, so
+ * a diagram with several targets can later show which of them a given edge
+ * actually serves.
  */
 function pathNodes(
   dataset: Dataset,
   ancestor: number,
   distances: Map<number, number>,
   into: Set<number>,
+  edgeOwners: Map<string, Set<number>>,
+  member: number,
 ): void {
   const remaining = distances.get(ancestor);
   if (remaining === undefined) return;
@@ -127,7 +155,16 @@ function pathNodes(
     const next = new Set<number>();
     for (const index of frontier) {
       for (const student of dataset.students(index)) {
-        if (distances.get(student) === hop - 1) next.add(student);
+        if (distances.get(student) === hop - 1) {
+          next.add(student);
+          const key = `${index}:${student}`;
+          let owners = edgeOwners.get(key);
+          if (!owners) {
+            owners = new Set();
+            edgeOwners.set(key, owners);
+          }
+          owners.add(member);
+        }
       }
     }
     for (const student of next) into.add(student);
@@ -205,15 +242,40 @@ export function lowestCommonAncestors(
 
     const ancestors = minimalAncestors(dataset, common, maxDepth);
     const nodes = new Set<number>(members);
+    const edgeOwners = new Map<string, Set<number>>();
+    // Tagged by each member's index in the *full* selection, not in this
+    // group — a forest still wants the same person drawn in the same colour
+    // in every one of its trees, and a group's own `members` is only ever a
+    // subset renumbered from zero.
     for (const ancestor of ancestors) {
-      memberAncestries.forEach((ancestry) => pathNodes(dataset, ancestor, ancestry, nodes));
+      memberAncestries.forEach((ancestry, i) =>
+        pathNodes(dataset, ancestor, ancestry, nodes, edgeOwners, unique.indexOf(members[i])),
+      );
     }
 
-    const edges: Array<[number, number]> = [];
+    const edges: LcaEdge[] = [];
+    const nodeOwnerSets = new Map<number, Set<number>>();
     for (const index of nodes) {
       for (const student of dataset.students(index)) {
-        if (nodes.has(student)) edges.push([index, student]);
+        if (nodes.has(student)) {
+          const owners = edgeOwners.get(`${index}:${student}`);
+          edges.push({ from: index, to: student, owners: owners ? [...owners].sort((a, b) => a - b) : [] });
+          if (owners) {
+            for (const endpoint of [index, student]) {
+              let set = nodeOwnerSets.get(endpoint);
+              if (!set) {
+                set = new Set();
+                nodeOwnerSets.set(endpoint, set);
+              }
+              for (const owner of owners) set.add(owner);
+            }
+          }
+        }
       }
+    }
+    const nodeOwners = new Map<number, number[]>();
+    for (const index of nodes) {
+      nodeOwners.set(index, [...(nodeOwnerSets.get(index) ?? [])].sort((a, b) => a - b));
     }
 
     // A node's height is its distance to whichever member is farthest below
@@ -246,6 +308,7 @@ export function lowestCommonAncestors(
         hops: memberAncestries.map((ancestry) => ancestry.get(ancestor) ?? -1),
       })),
       heights,
+      nodeOwners,
     });
   }
 
