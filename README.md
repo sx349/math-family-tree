@@ -5,7 +5,7 @@ A visualisation of advisor–student lineages from the
 
 Things it does that the MGP site does not:
 
-- **Neighbourhood graphs.** Every mathematician has a page showing everyone within a chosen
+- **Neighbourhood view.** Every mathematician has a page showing everyone within a chosen
   number of steps — advisors, students, and anyone reached through both — as a diagram.
 - **Lineage view.** The same page can instead trace just the advisor chain straight up, many
   more generations than the neighbourhood view goes.
@@ -17,8 +17,8 @@ name narrows the result instead of returning everyone matching either.
 
 ## Credits
 
-All genealogy data is from the Mathematics Genealogy Project at North Dakota State University.
-This is an independent visualisation, not affiliated with them. The initial snapshot was
-seeded from [pablit0o/MGP-visualizer](https://github.com/pablit0o/MGP-visualizer)'s API-derived
-dump (June 2026); [j2kun/math-genealogy-scraper](https://github.com/j2kun/math-genealogy-scraper)
-is the prior art for scraping the site directly.
+All genealogy data is from the
+[Mathematics Genealogy Project](https://www.genealogy.math.ndsu.nodak.edu/) at North Dakota
+State University. This is an independent visualisation, not affiliated with them. The initial
+snapshot was seeded from [pablit0o/MGP-visualizer](https://github.com/pablit0o/MGP-visualizer)'s
+API-derived dump (June 2026).
