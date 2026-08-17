@@ -131,11 +131,7 @@ export function PersonPage() {
       </p>
 
       {person.isStub ? (
-        <div className="notice">
-          No record for this person in the snapshot — only their name and who they connect to.{' '}
-          <a href={dataset.mgpUrl(index)} target="_blank" rel="noreferrer">Their MGP page</a>{' '}
-          may have more.
-        </div>
+        <div className="notice">No further details for this person in the snapshot.</div>
       ) : (
         <ul className="facts" style={{ marginBottom: 8 }}>
           {detail?.degrees.map((degree, position) => (
