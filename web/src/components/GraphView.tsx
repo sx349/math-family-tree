@@ -26,10 +26,23 @@ export interface GraphNodeSpec {
   height?: number;
 }
 
+export interface GraphEdgeSpec {
+  from: number;
+  to: number;
+  /**
+   * Indices of the selected people whose path actually runs through this
+   * edge, where the caller tracks that. An edge with exactly one owner gets
+   * a dash pattern unique to that person, so a reader can trace which
+   * branch is whose without following every line by eye; an edge with none
+   * or several (a real link that isn't on any single tracked path, or one
+   * shared by more than one) is drawn plain.
+   */
+  owners?: number[];
+}
+
 interface GraphViewProps {
   nodes: GraphNodeSpec[];
-  /** Advisor -> student. */
-  edges: Array<[number, number]>;
+  edges: GraphEdgeSpec[];
   overflows?: OverflowHandle[];
   onSelect?: (index: number) => void;
   onExpand?: (key: string) => void;
@@ -53,6 +66,21 @@ interface GraphViewProps {
 const NODE_FONT_SIZE = 11;
 const MIN_ZOOMED_FONT_SIZE = 7;
 const MIN_LEGIBLE_ZOOM = MIN_ZOOMED_FONT_SIZE / NODE_FONT_SIZE;
+
+/**
+ * One dash rhythm per selection slot, so a reader can trace which of up to
+ * five targets a given edge belongs to without their line ever needing a
+ * colour: increasingly long dashes, with the last two doubled up rather than
+ * lengthened again, since past a point a longer dash reads the same as the
+ * one before it at this line weight.
+ */
+const PATH_DASH_PATTERNS: number[][] = [
+  [1, 4],
+  [6, 4],
+  [11, 4],
+  [8, 3, 2, 3],
+  [8, 3, 2, 3, 2, 3],
+];
 
 /**
  * A lineage is tall and narrow, and taller than it first looks: dagre ranks by
@@ -294,9 +322,20 @@ export function GraphView({
       });
     }
 
-    for (const [advisor, student] of edges) {
-      if (present.has(advisor) && present.has(student)) {
-        definitions.push({ data: { id: `e${advisor}-${student}`, source: `n${advisor}`, target: `n${student}` } });
+    for (const { from, to, owners } of edges) {
+      if (present.has(from) && present.has(to)) {
+        // Only a *single* owner gets its own dash pattern: an edge two or
+        // more targets share is exactly as much "everyone's" as "no one's"
+        // in particular, and is drawn plain like one with no owner at all.
+        const pathOwner = owners?.length === 1 ? owners[0] : undefined;
+        definitions.push({
+          data: {
+            id: `e${from}-${to}`,
+            source: `n${from}`,
+            target: `n${to}`,
+            ...(pathOwner !== undefined ? { pathOwner } : {}),
+          },
+        });
       }
     }
 
@@ -410,6 +449,10 @@ export function GraphView({
           selector: 'edge[overflow]',
           style: { 'line-style': 'dashed', 'target-arrow-shape': 'none' },
         },
+        ...PATH_DASH_PATTERNS.map((pattern, owner) => ({
+          selector: `edge[pathOwner = ${owner}]`,
+          style: { 'line-style': 'dashed' as const, 'line-dash-pattern': pattern },
+        })),
         {
           selector: 'node:selected',
           style: { 'border-color': palette.oxblood, 'border-width': 2.4 },

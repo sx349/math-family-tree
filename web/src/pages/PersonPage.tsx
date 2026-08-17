@@ -259,7 +259,9 @@ export function PersonPage() {
 
       <GraphView
         nodes={nodes}
-        edges={(mode === 'neighbourhood' ? neighborhoodView?.edges : lineageView?.edges) ?? []}
+        edges={((mode === 'neighbourhood' ? neighborhoodView?.edges : lineageView?.edges) ?? []).map(
+          ([from, to]) => ({ from, to }),
+        )}
         overflows={neighborhoodView?.overflows ?? []}
         onSelect={(target) => navigate(`/person/${dataset.ids[target]}`)}
         onExpand={toggleExpand}

@@ -328,11 +328,40 @@ describe('lowest common ancestors', () => {
     expect(group.ancestors.map((i) => dataset.displayName(i))).toEqual(['Chasles, Michel']);
 
     const touched = new Set<number>();
-    for (const [a, b] of group.edges) {
-      touched.add(a);
-      touched.add(b);
+    for (const { from, to } of group.edges) {
+      touched.add(from);
+      touched.add(to);
     }
     for (const target of targets) expect(touched.has(target)).toBe(true);
+  });
+
+  it('tags each edge with which targets actually route through it', () => {
+    // Wang's and Yun's paths share the Chasles -> Newton -> Moore E.H. run
+    // before forking; Deng's takes a disjoint route via Darboux. An edge on
+    // the shared run should list both Wang and Yun as owners and not Deng;
+    // an edge past the fork should list only the one target it leads to.
+    const deng = dataset.indexOfId(DENG);
+    const wang = dataset.indexOfId(HONG_WANG);
+    const yun = dataset.indexOfId(ZHIWEI_YUN);
+    const { groups } = lowestCommonAncestors(dataset, [deng, wang, yun]);
+    const group = groups[0];
+    const memberOf = (id: number) => group.targets.indexOf(id);
+    const edgeNamed = (fromName: string, toName: string) =>
+      group.edges.find(
+        (e) => dataset.displayName(e.from).startsWith(fromName) && dataset.displayName(e.to).startsWith(toName),
+      );
+
+    const shared = edgeNamed('Newton', 'Moore, E. H.');
+    expect(shared?.owners.sort()).toEqual([memberOf(wang), memberOf(yun)].sort());
+
+    const wangOnly = edgeNamed('Moore, R. L.', 'Dyer');
+    expect(wangOnly?.owners).toEqual([memberOf(wang)]);
+
+    const yunOnly = edgeNamed('Birkhoff', 'Bourgin');
+    expect(yunOnly?.owners).toEqual([memberOf(yun)]);
+
+    const dengOnly = edgeNamed('Chasles', 'Darboux');
+    expect(dengOnly?.owners).toEqual([memberOf(deng)]);
   });
 
   it('heights every node by its distance to the farthest target', () => {
