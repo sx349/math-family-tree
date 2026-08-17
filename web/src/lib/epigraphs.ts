@@ -10,7 +10,11 @@
  *                  used and named, rather than a fresh paraphrase.
  *   · reported   — someone who knew them wrote it down afterwards, and that
  *                  person is named. Kronecker's, Gauss's and Weyl's.
- *   · unverified — exactly one, Deng's, and it says so.
+ *   · unchecked  — exactly one, Deng's, which carries its link and says so.
+ *
+ * Where a translation has been modernised rather than quoted as printed, the
+ * entry says which words were changed and why. That is the difference between
+ * an edit and the drift this file exists to keep out.
  *
  * The wordings were checked against Wikiquote and the translations named below
  * in August 2026, after two were found to have drifted here: Euler's had become
@@ -57,11 +61,14 @@ export const EPIGRAPHS: readonly Epigraph[] = [
       'a question of number is as important as a question of the system of the world."',
   },
   {
-    text: 'This leads us into the domain of another science, of physic, into which the object of this work does not allow us to go to-day.',
+    text: 'This leads us into the domain of another science, of physics, into which the object of this work does not allow us to go today.',
     who: 'Bernhard Riemann',
     source:
       'Über die Hypothesen, welche der Geometrie zu Grunde liegen — habilitation lecture, ' +
-      'Göttingen, 10 June 1854, closing words; W. K. Clifford’s translation, Nature, 1873',
+      'Göttingen, 10 June 1854, closing words; W. K. Clifford’s translation, Nature, 1873. ' +
+      'Spelling modernised: the standard transcription reads "of physic" and "to-day". The ' +
+      'latter is ordinary 1873 hyphenation rather than an error; the German is "das Gebiet der ' +
+      'Physik", so "physics" is what it means either way.',
   },
   {
     text: 'The essence of mathematics lies precisely in its freedom.',
@@ -115,8 +122,9 @@ export const EPIGRAPHS: readonly Epigraph[] = [
     text: 'What are some good yuri fan works?',
     who: 'Deng Yu',
     source:
-      'Question posted on Zhihu — 有哪些优秀的百合同人作品？ Supplied by this site’s maintainer and ' +
-      'not independently verified; the only unverified line in this file.',
+      'Question posted on Zhihu — 有哪些优秀的百合同人作品？ ' +
+      'https://www.zhihu.com/question/28176357 — supplied by this site’s maintainer; ' +
+      'the one line here not checked against a source from this machine.',
   },
 ];
 
