@@ -125,6 +125,65 @@ const PLATE_MAX_HEIGHT = 3600;
 const SUBROW_GAP = 8;
 /** Horizontal gap between neighbouring nodes in a wrapped generation. */
 const WRAP_GAP = 12;
+/** Matches the dagre layout's own `nodeSep`, so a reordered rank keeps the same spacing dagre used. */
+const NODE_SEP = 14;
+
+/**
+ * Reorder each rank so nodes sharing a target's path sit next to each other,
+ * on the LCA page only — every other view passes nodes with no `owners`,
+ * where this is a same-order no-op.
+ *
+ * Dagre's own crossing minimisation is purely structural: it has no notion
+ * of the colour a reader is tracking, so two branches that both pass through
+ * a busy generation can still be interleaved even though grouping them would
+ * read far more calmly. This runs after dagre, ordering each rank by the
+ * average of its nodes' owner indices — a node touched by targets 0 and 2
+ * sits between the target-0 and target-2 clusters rather than wherever the
+ * structural layout happened to leave it — and only repacks a rank when that
+ * actually changes its order, so dagre's own parent-over-child alignment
+ * survives everywhere this heuristic has nothing to add. The trade is real:
+ * this can raise the literal crossing count on structural edges in exchange
+ * for grouping that's easier to follow by eye.
+ */
+function orderByOwnership(cy: Core): void {
+  const byRank = new Map<number, cytoscape.NodeSingular[]>();
+  cy.nodes().forEach((node) => {
+    const rank = Math.round(node.position('y'));
+    const bucket = byRank.get(rank);
+    if (bucket) bucket.push(node);
+    else byRank.set(rank, [node]);
+  });
+
+  const ownerKey = (node: cytoscape.NodeSingular): number => {
+    const owners = node.data('owners') as number[] | undefined;
+    if (!owners || owners.length === 0) return -1;
+    return owners.reduce((sum, value) => sum + value, 0) / owners.length;
+  };
+
+  for (const row of byRank.values()) {
+    if (row.length < 2) continue;
+
+    const byX = [...row].sort((a, b) => a.position('x') - b.position('x'));
+    const ordered = [...row].sort((a, b) => {
+      const diff = ownerKey(a) - ownerKey(b);
+      // Ties keep dagre's own left-to-right order — already crossing-minimised
+      // for the structural edges this ordering doesn't otherwise consider.
+      return diff !== 0 ? diff : a.position('x') - b.position('x');
+    });
+    if (ordered.every((node, position) => node === byX[position])) continue;
+
+    const left = Math.min(...row.map((node) => node.position('x') - node.outerWidth() / 2));
+    const right = Math.max(...row.map((node) => node.position('x') + node.outerWidth() / 2));
+    const center = (left + right) / 2;
+    const totalWidth = ordered.reduce((sum, node) => sum + node.outerWidth() + NODE_SEP, -NODE_SEP);
+
+    let cursor = center - totalWidth / 2;
+    for (const node of ordered) {
+      node.position('x', cursor + node.outerWidth() / 2);
+      cursor += node.outerWidth() + NODE_SEP;
+    }
+  }
+}
 
 /**
  * Wrap over-wide generations into several stacked sub-rows.
@@ -349,6 +408,7 @@ export function GraphView({
           label,
           sublabel: [person.year, person.country].filter(Boolean).join(' · '),
           ...(pathColor ? { pathColor } : {}),
+          ...(owners && owners.length > 0 ? { owners } : {}),
         },
       });
     }
@@ -497,7 +557,11 @@ export function GraphView({
       minZoom: 0.03,
     });
 
-    // Done against dagre's raw ranks, before wrapping touches any position.
+    // Both passes work rank by rank against dagre's raw y-coordinates, so
+    // ownership reordering runs first — wrapping then re-derives its own
+    // left-to-right order from whatever x-positions are current, which
+    // means it packs the reordered rows rather than dagre's original order.
+    orderByOwnership(cy);
     curveShortcutEdges(cy);
 
     // Wrap to roughly the container's own width so the result fits at close to
