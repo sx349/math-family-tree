@@ -247,7 +247,7 @@ export function GraphView({
       // than added as a separate label: cytoscape draws one text field per
       // node, and a long name's ellipsis would otherwise eat a trailing
       // number before the reader ever saw it.
-      const label = height !== undefined ? `h${height} · ${dataset.displayName(index)}` : dataset.displayName(index);
+      const label = height !== undefined ? `(${height}) ${dataset.displayName(index)}` : dataset.displayName(index);
       definitions.push({
         data: {
           id: `n${index}`,
@@ -314,14 +314,17 @@ export function GraphView({
             'font-size': NODE_FONT_SIZE,
             'text-valign': 'center',
             'text-halign': 'center',
-            'text-wrap': 'ellipsis',
+            // Wrapped, not ellipsised: a name too wide for one line grows the
+            // box downward instead of losing its end, which matters most for
+            // exactly the long, multi-part names this dataset has plenty of.
+            'text-wrap': 'wrap',
             'text-max-width': '176px',
             // Below ~7px on screen a name is grey noise that obscures the shape
             // of the graph. Cytoscape drops the text entirely at that point, so
             // a dense view reads as clean boxes and names return on zoom in.
             'min-zoomed-font-size': MIN_ZOOMED_FONT_SIZE,
             width: 'label',
-            height: 20,
+            height: 'label',
             padding: '7px',
           },
         },
@@ -330,11 +333,11 @@ export function GraphView({
           // that answers the question is ruled heavier in the same ink as the
           // rest of the drawing. Weight and colour do separate jobs.
           selector: 'node[kind = "root"], node[kind = "target"]',
-          style: { 'border-width': 1.6, color: palette.oxblood, 'font-weight': 'bold', height: 24 },
+          style: { 'border-width': 1.6, color: palette.oxblood, 'font-weight': 'bold' },
         },
         {
           selector: 'node[kind = "lca"]',
-          style: { 'border-width': 2.6, 'font-weight': 'bold', height: 24 },
+          style: { 'border-width': 2.6, 'font-weight': 'bold' },
         },
         {
           // Stubs are people MGP references but whose record we do not have, so
