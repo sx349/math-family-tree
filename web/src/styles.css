@@ -153,6 +153,20 @@ header.runhead nav a[aria-current='page'] { color: var(--oxblood); }
 .button:disabled { color: var(--ink-faint); border-color: var(--hair); cursor: not-allowed; }
 .button.quiet { font-size: 0.88rem; border-bottom-color: var(--hair); color: var(--ink-soft); }
 
+/* The mode choice on a person's page, set apart from the depth control that
+   only refines whichever one is picked. Oxblood for the current one matches
+   how the running head already marks the current page — not a new use of
+   it, the same one at a different scale. */
+.mode-toggle { display: flex; gap: 24px; margin: 14px 0 20px; }
+.mode-toggle button {
+  all: unset; cursor: pointer;
+  font-variant-caps: all-small-caps; letter-spacing: 0.08em;
+  font-size: 1.15rem; font-weight: 600; color: var(--ink-faint);
+  padding-bottom: 6px; border-bottom: 2px solid transparent;
+}
+.mode-toggle button:hover { color: var(--oxblood); }
+.mode-toggle button[aria-pressed='true'] { color: var(--oxblood); border-bottom-color: var(--oxblood); }
+
 input[type='text'], input[type='number'], select {
   width: 100%; padding: 6px 2px; border: 0; border-bottom: 1px solid var(--hair);
   background: transparent; color: var(--ink); font: inherit; font-size: 1rem;
