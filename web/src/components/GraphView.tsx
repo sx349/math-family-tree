@@ -165,6 +165,41 @@ function wrapWideRanks(cy: Core, maxRowWidth: number): void {
 }
 
 /**
+ * Bow an edge that skips a generation, so it can never be mistaken for the
+ * chain running beneath it.
+ *
+ * Dagre ranks by edges: an advisor of both a student and that student's own
+ * advisor sits exactly as far up as the longer path demands, since it has no
+ * choice but to sit above everything it advises. With no sibling at that rank
+ * to force any horizontal spread, the direct edge down to the grandchild ends
+ * up drawn straight through the intermediate node's column — geometrically
+ * identical to no edge at all. Curving only the edges that span more than one
+ * rank leaves ordinary parent-child edges as clean straight lines and makes
+ * every shortcut visible regardless of how the rest of the row falls.
+ */
+function curveShortcutEdges(cy: Core): void {
+  const rankYs = new Set<number>();
+  cy.nodes().forEach((node) => {
+    rankYs.add(Math.round(node.position('y')));
+  });
+  const ranks = [...rankYs].sort((a, b) => a - b);
+  const rankIndex = new Map<number, number>(ranks.map((y, i) => [y, i]));
+
+  cy.edges().forEach((edge) => {
+    const sourceRank = rankIndex.get(Math.round(edge.source().position('y')));
+    const targetRank = rankIndex.get(Math.round(edge.target().position('y')));
+    if (sourceRank === undefined || targetRank === undefined) return;
+    if (Math.abs(targetRank - sourceRank) > 1) {
+      edge.style({
+        'curve-style': 'unbundled-bezier',
+        'control-point-distances': [32],
+        'control-point-weights': [0.5],
+      });
+    }
+  });
+}
+
+/**
  * Hold the drawing against the edges of the plate.
  *
  * Centring on the focus node is right when the whole graph fits, but a lineage
@@ -393,6 +428,9 @@ export function GraphView({
       maxZoom: 3,
       minZoom: 0.03,
     });
+
+    // Done against dagre's raw ranks, before wrapping touches any position.
+    curveShortcutEdges(cy);
 
     // Wrap to roughly the container's own width so the result fits at close to
     // 1:1 zoom — wrapping to something wider only trades a strip for a smaller
