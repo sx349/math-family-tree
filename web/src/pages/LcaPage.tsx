@@ -49,7 +49,7 @@ export function LcaPage() {
     <div className="page">
       <h1>Common Ancestors</h1>
       <p className="lede">
-        Shared advisor(s) of up to {MAX_TARGETS} names, within {generations(DEFAULT_MAX_DEPTH)}.
+        Closest shared advisor(s) of up to {MAX_TARGETS} names, within {generations(DEFAULT_MAX_DEPTH)}.
       </p>
 
       <PersonSearch
