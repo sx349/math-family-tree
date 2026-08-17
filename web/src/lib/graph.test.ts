@@ -364,6 +364,35 @@ describe('lowest common ancestors', () => {
     expect(dengOnly?.owners).toEqual([memberOf(deng)]);
   });
 
+  it('derives node ownership from incident edges, consistently with them', () => {
+    // A node's owners should be exactly the union of what its own edges
+    // report — never a colour a node's lines don't actually show.
+    const deng = dataset.indexOfId(DENG);
+    const wang = dataset.indexOfId(HONG_WANG);
+    const yun = dataset.indexOfId(ZHIWEI_YUN);
+    const { groups } = lowestCommonAncestors(dataset, [deng, wang, yun]);
+    const group = groups[0];
+    const memberOf = (id: number) => group.targets.indexOf(id);
+    const nodeNamed = (name: string) => group.nodes.find((i) => dataset.displayName(i).startsWith(name));
+
+    // E. H. Moore sits on the shared Wang/Yun run, then forks — so it owes
+    // its position to both, same as the edge running into it.
+    const mooreEH = nodeNamed('Moore, E. H.');
+    expect(group.nodeOwners.get(mooreEH!)?.sort()).toEqual([memberOf(wang), memberOf(yun)].sort());
+
+    // Each target itself is owned only by itself.
+    expect(group.nodeOwners.get(deng)).toEqual([memberOf(deng)]);
+    expect(group.nodeOwners.get(wang)).toEqual([memberOf(wang)]);
+    expect(group.nodeOwners.get(yun)).toEqual([memberOf(yun)]);
+
+    // Cross-check every node against its own incident edges directly.
+    for (const node of group.nodes) {
+      const fromEdges = group.edges.filter((e) => e.from === node || e.to === node);
+      const expected = new Set(fromEdges.flatMap((e) => e.owners));
+      expect(new Set(group.nodeOwners.get(node))).toEqual(expected);
+    }
+  });
+
   it('heights every node by its distance to the farthest target', () => {
     // Deng and Wang alone: three incomparable lowest common ancestors, each
     // topping a subtree of a different depth. A target itself is height 0;

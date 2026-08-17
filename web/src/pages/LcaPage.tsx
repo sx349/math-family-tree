@@ -39,6 +39,7 @@ export function LcaPage() {
         index,
         kind: targets.has(index) ? 'target' : ancestors.has(index) ? 'lca' : 'relative',
         height: group.heights.get(index),
+        owners: group.nodeOwners.get(index),
       }));
       return { group, nodes };
     });

@@ -24,6 +24,13 @@ export interface GraphNodeSpec {
   kind: NodeKind;
   /** Hop count to this node's farthest target, where the caller tracks one. */
   height?: number;
+  /**
+   * Indices of the selected people whose path actually runs through this
+   * node, where the caller tracks that — see `GraphEdgeSpec.owners`. Ignored
+   * for a 'lca' node: the answer stays neutral ink regardless of who owns
+   * the edges leading to it.
+   */
+  owners?: number[];
 }
 
 export interface GraphEdgeSpec {
@@ -31,11 +38,10 @@ export interface GraphEdgeSpec {
   to: number;
   /**
    * Indices of the selected people whose path actually runs through this
-   * edge, where the caller tracks that. An edge with exactly one owner gets
-   * a dash pattern unique to that person, so a reader can trace which
-   * branch is whose without following every line by eye; an edge with none
-   * or several (a real link that isn't on any single tracked path, or one
-   * shared by more than one) is drawn plain.
+   * edge, where the caller tracks that. Blended into one colour unique to
+   * that combination, so a reader can trace which branch is whose without
+   * following every line by eye; an edge with none (a real link that isn't
+   * on any single tracked path) is drawn plain.
    */
   owners?: number[];
 }
@@ -285,13 +291,19 @@ function readPalette(): Record<string, string> {
 }
 
 /**
- * One ink for structure, one oxblood for the people the reader asked about.
- * Everything else is distinguished by stroke weight and line style — the
- * register of a printed plate rather than of a colour-coded chart.
+ * One ink for structure, one oxblood for the people the reader asked about —
+ * unless the caller tracks per-target colour (the LCA page), in which case a
+ * target takes its own colour instead of the shared oxblood, and any node on
+ * a coloured path takes the blend of whoever's path runs through it. The
+ * answer itself ('lca') is the one thing colour never touches: it stays
+ * neutral ink regardless of which paths lead to it, since it isn't any one
+ * target's to claim any more than a shared edge is.
  */
-function strokeFor(kind: string, palette: Record<string, string>): string {
-  if (kind === 'root' || kind === 'target') return palette.oxblood;
+function strokeFor(kind: string, pathColor: string | undefined, palette: Record<string, string>): string {
   if (kind === 'stub') return palette.inkFaint;
+  if (kind === 'lca') return palette.ink;
+  if (pathColor) return pathColor;
+  if (kind === 'root' || kind === 'target') return palette.oxblood;
   return palette.ink;
 }
 
@@ -320,7 +332,7 @@ export function GraphView({
     const present = new Set(nodes.map((n) => n.index));
     const definitions: ElementDefinition[] = [];
 
-    for (const { index, kind, height } of nodes) {
+    for (const { index, kind, height, owners } of nodes) {
       const person = dataset.person(index);
       const effectiveKind = person.isStub && kind !== 'root' && kind !== 'target' ? 'stub' : kind;
       // Where the caller tracks height, it's prefixed onto the name rather
@@ -328,6 +340,7 @@ export function GraphView({
       // node, and a long name's ellipsis would otherwise eat a trailing
       // number before the reader ever saw it.
       const label = height !== undefined ? `(${height}) ${dataset.displayName(index)}` : dataset.displayName(index);
+      const pathColor = owners && owners.length > 0 ? blendInk(owners) : undefined;
       definitions.push({
         data: {
           id: `n${index}`,
@@ -335,6 +348,7 @@ export function GraphView({
           kind: effectiveKind,
           label,
           sublabel: [person.year, person.country].filter(Boolean).join(' · '),
+          ...(pathColor ? { pathColor } : {}),
         },
       });
     }
@@ -395,9 +409,11 @@ export function GraphView({
             'background-color': palette.paper,
             'background-opacity': 1,
             'border-width': 1,
-            'border-color': (element) => strokeFor(element.data('kind') as string, palette),
+            'border-color': (element) =>
+              strokeFor(element.data('kind') as string, element.data('pathColor') as string | undefined, palette),
             label: 'data(label)',
-            color: palette.ink,
+            color: (element: cytoscape.NodeSingular) =>
+              strokeFor(element.data('kind') as string, element.data('pathColor') as string | undefined, palette),
             'font-family': "Charter, 'Bitstream Charter', 'Sitka Text', Cambria, Georgia, serif",
             'font-size': NODE_FONT_SIZE,
             'text-valign': 'center',
@@ -417,11 +433,10 @@ export function GraphView({
           },
         },
         {
-          // The people the reader asked about are ruled in oxblood; the ancestor
-          // that answers the question is ruled heavier in the same ink as the
-          // rest of the drawing. Weight and colour do separate jobs.
+          // The people the reader asked about are ruled heavier than the rest
+          // of the drawing; strokeFor already decided their colour above.
           selector: 'node[kind = "root"], node[kind = "target"]',
-          style: { 'border-width': 1.6, color: palette.oxblood, 'font-weight': 'bold' },
+          style: { 'border-width': 1.6, 'font-weight': 'bold' },
         },
         {
           selector: 'node[kind = "lca"]',

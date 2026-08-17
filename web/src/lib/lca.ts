@@ -61,6 +61,13 @@ export interface LcaGroup {
    * different depths in the tree below them; this says how much.
    */
   heights: Map<number, number>;
+  /**
+   * Per node in `nodes`, the union of its incident edges' `owners` — derived
+   * from `edges` rather than tracked separately, so a node's colour can never
+   * disagree with the lines actually touching it. Empty for a node with no
+   * owned edges at all (in practice, only ever an ancestor itself).
+   */
+  nodeOwners: Map<number, number[]>;
 }
 
 export interface LcaResult {
@@ -247,13 +254,28 @@ export function lowestCommonAncestors(
     }
 
     const edges: LcaEdge[] = [];
+    const nodeOwnerSets = new Map<number, Set<number>>();
     for (const index of nodes) {
       for (const student of dataset.students(index)) {
         if (nodes.has(student)) {
           const owners = edgeOwners.get(`${index}:${student}`);
           edges.push({ from: index, to: student, owners: owners ? [...owners].sort((a, b) => a - b) : [] });
+          if (owners) {
+            for (const endpoint of [index, student]) {
+              let set = nodeOwnerSets.get(endpoint);
+              if (!set) {
+                set = new Set();
+                nodeOwnerSets.set(endpoint, set);
+              }
+              for (const owner of owners) set.add(owner);
+            }
+          }
         }
       }
+    }
+    const nodeOwners = new Map<number, number[]>();
+    for (const index of nodes) {
+      nodeOwners.set(index, [...(nodeOwnerSets.get(index) ?? [])].sort((a, b) => a - b));
     }
 
     // A node's height is its distance to whichever member is farthest below
@@ -286,6 +308,7 @@ export function lowestCommonAncestors(
         hops: memberAncestries.map((ancestry) => ancestry.get(ancestor) ?? -1),
       })),
       heights,
+      nodeOwners,
     });
   }
 
