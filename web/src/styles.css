@@ -305,6 +305,15 @@ h1 + form .field-grid { margin-top: 26px; }
 .plate-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink-faint); text-align: center; padding: 32px; }
 .plate-tools { display: flex; justify-content: flex-end; gap: 18px; margin-bottom: 8px; }
 .plate-tools .button { font-size: 0.8rem; }
+
+/* Stands in for the whole plate on a phone in portrait: there is no width to
+   lay generations out sideways, so nothing is computed or drawn — this
+   message is the entire diagram section in that state. */
+.rotate-prompt {
+  min-height: 220px; display: grid; place-items: center; text-align: center;
+  padding: 32px; margin: 16px 0; color: var(--ink-faint);
+  border-top: 1px solid var(--ink); border-bottom: 1px solid var(--hair);
+}
 /* ------------------------------------------------------------------ notice */
 
 .notice {

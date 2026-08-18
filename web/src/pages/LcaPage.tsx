@@ -1,24 +1,49 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { GraphView, type GraphNodeSpec } from '../components/GraphView';
 import { PersonSearch } from '../components/PersonSearch';
 import { useDataset } from '../DatasetContext';
 import { DEFAULT_MAX_DEPTH, MAX_TARGETS, lowestCommonAncestors } from '../lib/lca';
+import { readStored, writeStored } from '../lib/persist';
+import { usePortraitPhone } from '../lib/usePortraitPhone';
 
 const generations = (count: number) => `${count} generation${count === 1 ? '' : 's'}`;
+
+// Stored as MGP ids, not the dense indices selected/nodes use elsewhere:
+// ids are the one identifier that stays meaningful across a data refresh,
+// where a rebuilt dataset can reassign every index.
+const STORAGE_KEY = 'lca:selected-ids';
 
 export function LcaPage() {
   const dataset = useDataset();
   const navigate = useNavigate();
-  const [selected, setSelected] = useState<number[]>([]);
+  // Restored once at mount — a person no longer in the snapshot (or a
+  // storage value from before this feature existed) is simply dropped.
+  const [selected, setSelected] = useState<number[]>(() =>
+    readStored<number[]>(STORAGE_KEY, [])
+      .map((id) => dataset.indexOfId(id))
+      .filter((index) => index >= 0)
+      .slice(0, MAX_TARGETS),
+  );
+
+  useEffect(() => {
+    writeStored(STORAGE_KEY, selected.map((index) => dataset.ids[index]));
+  }, [dataset, selected]);
+
+  const portraitPhone = usePortraitPhone();
 
   // Computed as soon as there are two people to compare, rather than behind a
   // button: the search costs single-digit milliseconds, and a "Find" step only
   // stood between the reader and the answer they had already asked for.
+  // Skipped entirely in portrait on a phone — there is nowhere to draw the
+  // result, so there is no reason to search for it.
   const result = useMemo(
-    () => (selected.length >= 2 ? lowestCommonAncestors(dataset, selected, DEFAULT_MAX_DEPTH) : null),
-    [dataset, selected],
+    () =>
+      portraitPhone || selected.length < 2
+        ? null
+        : lowestCommonAncestors(dataset, selected, DEFAULT_MAX_DEPTH),
+    [dataset, selected, portraitPhone],
   );
 
   const add = (index: number) =>
@@ -82,6 +107,10 @@ export function LcaPage() {
             </button>
           )}
         </div>
+      )}
+
+      {portraitPhone && selected.length >= 2 && (
+        <div className="rotate-prompt">Turn your phone sideways to see the diagram.</div>
       )}
 
       {result && (

@@ -125,6 +125,77 @@ const PLATE_MAX_HEIGHT = 3600;
 const SUBROW_GAP = 8;
 /** Horizontal gap between neighbouring nodes in a wrapped generation. */
 const WRAP_GAP = 12;
+/** Matches the dagre layout's own `nodeSep`, so a reordered rank keeps the same spacing dagre used. */
+const NODE_SEP = 14;
+
+/**
+ * Re-lay every rank as a spindle centred on one shared axis, ordering each
+ * rank's nodes so ones sharing a target's path sit next to each other. LCA
+ * page only — every other view passes nodes with no `owners`, where this
+ * exits immediately and touches nothing.
+ *
+ * Two things dagre's own layout doesn't give us. First, its crossing
+ * minimisation is purely structural — it has no notion of the colour a
+ * reader is tracking, so two branches that both pass through a busy
+ * generation can still be interleaved even though grouping them would read
+ * far more calmly. Second, and the reason this went through two earlier,
+ * insufficient attempts: dagre leaves each rank whatever left/right position
+ * its own coordinate assignment produced, which for a rank touched by a
+ * shortcut edge's lane reservation (see curveShortcutEdges) can be
+ * substantially off-centre. Centring a repacked rank on its *own* old span
+ * just re-anchors it to that same bias; centring it on its neighbours'
+ * average still inherits the bias whenever those neighbours were themselves
+ * pushed the same direction. Only a single axis shared by every rank —
+ * including the ones with nothing to reorder, a lone root or a lone leaf
+ * among them — breaks that chain: the whole diagram narrows to a point at a
+ * single ancestor or target and widens through the busy middle, the shape a
+ * converging family tree actually has. The trade is real: this can raise the
+ * literal crossing count on structural edges, and it can pull a rank away
+ * from sitting centred under its own parent, in exchange for a shape that's
+ * far easier to follow by eye.
+ */
+function orderByOwnership(cy: Core): void {
+  const hasOwnership = cy.nodes().some((node) => {
+    const owners = node.data('owners') as number[] | undefined;
+    return owners !== undefined && owners.length > 0;
+  });
+  if (!hasOwnership) return;
+
+  const byRank = new Map<number, cytoscape.NodeSingular[]>();
+  cy.nodes().forEach((node) => {
+    const rank = Math.round(node.position('y'));
+    const bucket = byRank.get(rank);
+    if (bucket) bucket.push(node);
+    else byRank.set(rank, [node]);
+  });
+
+  // Fixed before any rank is touched, so later ranks aren't centred against
+  // earlier ranks' already-adjusted positions.
+  const bounds = cy.nodes().boundingBox();
+  const axis = (bounds.x1 + bounds.x2) / 2;
+
+  const ownerKey = (node: cytoscape.NodeSingular): number => {
+    const owners = node.data('owners') as number[] | undefined;
+    if (!owners || owners.length === 0) return -1;
+    return owners.reduce((sum, value) => sum + value, 0) / owners.length;
+  };
+
+  for (const row of byRank.values()) {
+    const ordered = [...row].sort((a, b) => {
+      const diff = ownerKey(a) - ownerKey(b);
+      // Ties keep dagre's own left-to-right order — already crossing-minimised
+      // for the structural edges this ordering doesn't otherwise consider.
+      return diff !== 0 ? diff : a.position('x') - b.position('x');
+    });
+
+    const totalWidth = ordered.reduce((sum, node) => sum + node.outerWidth() + NODE_SEP, -NODE_SEP);
+    let cursor = axis - totalWidth / 2;
+    for (const node of ordered) {
+      node.position('x', cursor + node.outerWidth() / 2);
+      cursor += node.outerWidth() + NODE_SEP;
+    }
+  }
+}
 
 /**
  * Wrap over-wide generations into several stacked sub-rows.
@@ -349,6 +420,7 @@ export function GraphView({
           label,
           sublabel: [person.year, person.country].filter(Boolean).join(' · '),
           ...(pathColor ? { pathColor } : {}),
+          ...(owners && owners.length > 0 ? { owners } : {}),
         },
       });
     }
@@ -422,7 +494,7 @@ export function GraphView({
             // box downward instead of losing its end, which matters most for
             // exactly the long, multi-part names this dataset has plenty of.
             'text-wrap': 'wrap',
-            'text-max-width': '176px',
+            'text-max-width': '128px',
             // Below ~7px on screen a name is grey noise that obscures the shape
             // of the graph. Cytoscape drops the text entirely at that point, so
             // a dense view reads as clean boxes and names return on zoom in.
@@ -488,6 +560,7 @@ export function GraphView({
         rankDir: 'TB',
         nodeSep: 14,
         rankSep: 76,
+        ranker: 'tight-tree',
         animate: false,
         fit: false, // fitted below, after the wrap pass has moved things
         padding: 40,
@@ -497,7 +570,11 @@ export function GraphView({
       minZoom: 0.03,
     });
 
-    // Done against dagre's raw ranks, before wrapping touches any position.
+    // Both passes work rank by rank against dagre's raw y-coordinates, so
+    // ownership reordering runs first — wrapping then re-derives its own
+    // left-to-right order from whatever x-positions are current, which
+    // means it packs the reordered rows rather than dagre's original order.
+    orderByOwnership(cy);
     curveShortcutEdges(cy);
 
     // Wrap to roughly the container's own width so the result fits at close to
