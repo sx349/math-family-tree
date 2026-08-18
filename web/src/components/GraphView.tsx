@@ -295,15 +295,12 @@ function shrinkToFitWidestRank(cy: Core, maxRowWidth: number): void {
     return packedWidthOf(widestRow!) <= maxRowWidth;
   };
 
-  // Even the floor doesn't fit — `fits` already mutated the style to check,
-  // so it has to be put back before handing off, or wrapWideRanks would
-  // stack a diagram that's shrunk to the unreadable floor instead of the
-  // full size it's meant to be wrapping.
+  // Even the floor doesn't fit on one line — wrapWideRanks takes it from
+  // here regardless, but the floor's narrower boxes still mean fewer sub-rows
+  // than stacking at full size would need, so the style is deliberately left
+  // at the floor (fits(floor), just above) rather than put back.
   const floor = MIN_SHRUNK_FONT_SIZE / NODE_FONT_SIZE;
-  if (!fits(floor)) {
-    fits(1);
-    return;
-  }
+  if (!fits(floor)) return;
 
   let lo = floor;
   let hi = 1;
