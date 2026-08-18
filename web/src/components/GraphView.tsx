@@ -172,9 +172,26 @@ function orderByOwnership(cy: Core): void {
     });
     if (ordered.every((node, position) => node === byX[position])) continue;
 
+    // Centred on the row's own neighbours, not the row's own old span: a
+    // member displaced sideways by dagre's shortcut-edge lane reservation
+    // (see curveShortcutEdges) skews that span, and anchoring to it just
+    // relocates the whole tightened cluster to sit wherever that one
+    // outlier used to be. The connected nodes immediately above and below
+    // are what the row is actually answering to — they weren't reordered
+    // themselves, so their positions haven't inherited today's skew.
+    const neighbourXs: number[] = [];
+    row.forEach((node) => {
+      node.connectedEdges().forEach((edge) => {
+        const other = edge.source().id() === node.id() ? edge.target() : edge.source();
+        if (other.id() !== node.id()) neighbourXs.push(other.position('x'));
+      });
+    });
     const left = Math.min(...row.map((node) => node.position('x') - node.outerWidth() / 2));
     const right = Math.max(...row.map((node) => node.position('x') + node.outerWidth() / 2));
-    const center = (left + right) / 2;
+    const center =
+      neighbourXs.length > 0
+        ? neighbourXs.reduce((sum, x) => sum + x, 0) / neighbourXs.length
+        : (left + right) / 2;
     const totalWidth = ordered.reduce((sum, node) => sum + node.outerWidth() + NODE_SEP, -NODE_SEP);
 
     let cursor = center - totalWidth / 2;
