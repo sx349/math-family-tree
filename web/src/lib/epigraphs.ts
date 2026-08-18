@@ -120,7 +120,7 @@ export const EPIGRAPHS: readonly Epigraph[] = [
     // been able to check. It is kept because a genealogy of advisors and
     // students is also a record of people, and people are not only theorems.
     text: 'What are some good yuri fan works?',
-    who: 'Deng Yu',
+    who: 'Yu Deng',
     source:
       'Question posted on Zhihu — 有哪些优秀的百合同人作品？ ' +
       'https://www.zhihu.com/question/28176357 — supplied by this site’s maintainer; ' +
