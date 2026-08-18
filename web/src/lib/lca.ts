@@ -253,45 +253,35 @@ export function lowestCommonAncestors(
       );
     }
 
+    // Only an edge some member's shortest path actually walks belongs here —
+    // Mazurkiewicz advises both Rajchman and Rajchman's own student Zygmund,
+    // a real relationship, but showing it would answer a question this page
+    // doesn't ask. curveShortcutEdges exists on the neighbourhood/lineage
+    // pages precisely to surface that kind of shortcut, because there the
+    // point is an honest picture of who advised whom; here the point is why
+    // an ancestor is *lowest*, and a link no shortest route ever needed
+    // doesn't serve that, however real it is.
     const edges: LcaEdge[] = [];
     const nodeOwnerSets = new Map<number, Set<number>>();
     for (const index of nodes) {
       for (const student of dataset.students(index)) {
-        if (nodes.has(student)) {
-          const owners = edgeOwners.get(`${index}:${student}`);
-          edges.push({ from: index, to: student, owners: owners ? [...owners].sort((a, b) => a - b) : [] });
-          if (owners) {
-            for (const endpoint of [index, student]) {
-              let set = nodeOwnerSets.get(endpoint);
-              if (!set) {
-                set = new Set();
-                nodeOwnerSets.set(endpoint, set);
-              }
-              for (const owner of owners) set.add(owner);
-            }
+        if (!nodes.has(student)) continue;
+        const owners = edgeOwners.get(`${index}:${student}`);
+        if (!owners) continue;
+        edges.push({ from: index, to: student, owners: [...owners].sort((a, b) => a - b) });
+        for (const endpoint of [index, student]) {
+          let set = nodeOwnerSets.get(endpoint);
+          if (!set) {
+            set = new Set();
+            nodeOwnerSets.set(endpoint, set);
           }
+          for (const owner of owners) set.add(owner);
         }
       }
     }
     const nodeOwners = new Map<number, number[]>();
     for (const index of nodes) {
       nodeOwners.set(index, [...(nodeOwnerSets.get(index) ?? [])].sort((a, b) => a - b));
-    }
-
-    // A real edge can end up walked by no member's shortest path at all —
-    // Mazurkiewicz advises both Rajchman and Rajchman's own student Zygmund,
-    // so the direct Mazurkiewicz-to-Zygmund edge is every member's shortest
-    // route and Mazurkiewicz-to-Rajchman is nobody's, even though both
-    // endpoints are themselves fully owned. Left blank, that reads as a
-    // broken link between two coloured boxes rather than the genuine "not on
-    // the shortest route" it is. Filling it from the *intersection* of its
-    // endpoints' colours draws it as whichever members the edge could
-    // plausibly be serving, without claiming a target's path runs through an
-    // edge no shortest route for that target ever needed.
-    for (const edge of edges) {
-      if (edge.owners.length > 0) continue;
-      const toOwners = new Set(nodeOwners.get(edge.to));
-      edge.owners = (nodeOwners.get(edge.from) ?? []).filter((owner) => toOwners.has(owner));
     }
 
     // A node's height is its distance to whichever member is farthest below
