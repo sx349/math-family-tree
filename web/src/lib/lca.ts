@@ -285,19 +285,32 @@ export function lowestCommonAncestors(
     }
 
     // A node's height is its distance to whichever member is farthest below
-    // it — the same number the recursive "max(child) + 1" walk down the
-    // subgraph would produce, but read directly off the up-distances already
-    // computed for each member, since those are exactly the shortest-path
-    // lengths the subgraph's edges were built from.
-    const heights = new Map<number, number>();
-    for (const index of nodes) {
-      let height = 0;
-      for (const ancestry of memberAncestries) {
-        const hop = ancestry.get(index);
-        if (hop !== undefined && hop > height) height = hop;
-      }
-      heights.set(index, height);
+    // it, computed as the actual recursive "max(child height) + 1" walk down
+    // the diagram's own kept edges. Reading it off each member's independent
+    // up-distance instead — which is what this used to do — looks like the
+    // same number, but isn't: a node shared by several members' paths takes
+    // its height from whichever member is farthest below *it*, and that can
+    // be a different member than the one farthest below its parent. Two
+    // numbers pulled from two different members' unrelated distances don't
+    // compose into something that decreases along every edge the way a
+    // height reasonably should. Walking the real, kept edges one at a time
+    // does, by construction.
+    const children = new Map<number, number[]>();
+    for (const edge of edges) {
+      const list = children.get(edge.from);
+      if (list) list.push(edge.to);
+      else children.set(edge.from, [edge.to]);
     }
+    const heights = new Map<number, number>();
+    const heightOf = (index: number): number => {
+      const cached = heights.get(index);
+      if (cached !== undefined) return cached;
+      const kids = children.get(index);
+      const height = kids && kids.length > 0 ? 1 + Math.max(...kids.map(heightOf)) : 0;
+      heights.set(index, height);
+      return height;
+    };
+    for (const index of nodes) heightOf(index);
 
     groups.push({
       targets: members,
