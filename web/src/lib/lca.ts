@@ -79,28 +79,72 @@ export interface LcaResult {
   depthLimited: boolean;
 }
 
-/** Distance from `start` up to each of its ancestors, including itself at 0. */
-export function ancestorDistances(
-  dataset: Dataset,
-  start: number,
-  maxDepth: number,
-): Map<number, number> {
+export interface AncestorGraph {
+  /** Distance from `start` up to each ancestor, including itself at 0. */
+  distances: Map<number, number>;
+  /** Every real advisor -> student edge that lies on some shortest path up from `start`. */
+  edges: Array<[advisor: number, student: number]>;
+}
+
+/**
+ * Distances from `start` up to each of its ancestors, together with every
+ * real edge that lies on some shortest path to get there — computed in one
+ * pass, not two.
+ *
+ * A plain BFS only keeps the first advisor that reaches a given node,
+ * discarding any other real advisor tied at the exact same distance. That's
+ * fine for the distance number itself, but wrong for anything that needs to
+ * know *which* edges are shortest-path edges: a node can legitimately have
+ * several parents at once, all equally short. Reconstructing that
+ * afterward — walking the graph a second time and re-checking hop counts
+ * against `dataset.students` — doesn't just redo work this pass already
+ * did; `students` and `advisors` are two independently stored adjacency
+ * lists, not derived from each other, so a real edge present in one is not
+ * guaranteed to be present in the other. A walk built on `students` can
+ * silently miss an edge the distances (built on `advisors`) already knew
+ * was there — which is exactly what happened: two people tied the same way
+ * between the same two parents came out with different edges credited,
+ * because the second pass reconstructed their shared tie inconsistently
+ * from a different, incomplete index.
+ *
+ * So this keeps every tied advisor as it goes, in the same single pass,
+ * using only `advisors` throughout: by the time a hop's frontier is fully
+ * processed, every node discovered at that hop already has its final
+ * distance, so a later same-hop advisor is exactly as valid a parent as the
+ * first one that reached it.
+ */
+export function ancestorGraph(dataset: Dataset, start: number, maxDepth: number): AncestorGraph {
   const distances = new Map<number, number>([[start, 0]]);
+  const edges: Array<[number, number]> = [];
   let frontier = [start];
 
   for (let hop = 1; hop <= maxDepth && frontier.length > 0; hop++) {
     const next: number[] = [];
     for (const index of frontier) {
       for (const advisor of dataset.advisors(index)) {
-        if (!distances.has(advisor)) {
+        const existing = distances.get(advisor);
+        if (existing === undefined) {
           distances.set(advisor, hop);
+          edges.push([advisor, index]);
           next.push(advisor);
+        } else if (existing === hop) {
+          // Reached at the same hop through a different node already in
+          // this frontier — an equally valid shortest-path edge, not a new
+          // node to expand further.
+          edges.push([advisor, index]);
         }
+        // existing < hop: `advisor` has a strictly shorter route elsewhere,
+        // so this particular edge isn't on any shortest path to it.
       }
     }
     frontier = next;
   }
-  return distances;
+  return { distances, edges };
+}
+
+/** Distance from `start` up to each of its ancestors, including itself at 0. */
+export function ancestorDistances(dataset: Dataset, start: number, maxDepth: number): Map<number, number> {
+  return ancestorGraph(dataset, start, maxDepth).distances;
 }
 
 /**
@@ -122,54 +166,6 @@ function minimalAncestors(
     }
   }
   return [...common].filter((index) => !superseded.has(index));
-}
-
-/**
- * Nodes and edges on any shortest path from `ancestor` down to `target`.
- *
- * Walks down from the ancestor, keeping only steps that strictly close the
- * remaining distance to the target. Because `distances` holds the up-distance
- * from the target, a child is on a shortest path exactly when its distance is
- * one less than its parent's. Every edge walked is tagged with `member`, so
- * a diagram with several targets can later show which of them a given edge
- * actually serves.
- */
-function pathNodes(
-  dataset: Dataset,
-  ancestor: number,
-  distances: Map<number, number>,
-  into: Set<number>,
-  edgeOwners: Map<string, Set<number>>,
-  member: number,
-): void {
-  const remaining = distances.get(ancestor);
-  if (remaining === undefined) return;
-
-  into.add(ancestor);
-  let frontier = [ancestor];
-  for (let hop = remaining; hop > 0; hop--) {
-    // A Set, not a filter on `!into.has`: another target's path may already
-    // have added this node (paths converge before a common ancestor and
-    // diverge after), and skipping it here would break *this* path in two
-    // without the node itself ever being missing from `into`.
-    const next = new Set<number>();
-    for (const index of frontier) {
-      for (const student of dataset.students(index)) {
-        if (distances.get(student) === hop - 1) {
-          next.add(student);
-          const key = `${index}:${student}`;
-          let owners = edgeOwners.get(key);
-          if (!owners) {
-            owners = new Set();
-            edgeOwners.set(key, owners);
-          }
-          owners.add(member);
-        }
-      }
-    }
-    for (const student of next) into.add(student);
-    frontier = [...next];
-  }
 }
 
 /** Partition targets into groups that share at least one ancestor. */
@@ -222,7 +218,8 @@ export function lowestCommonAncestors(
     };
   }
 
-  const ancestries = unique.map((target) => ancestorDistances(dataset, target, maxDepth));
+  const graphs = unique.map((target) => ancestorGraph(dataset, target, maxDepth));
+  const ancestries = graphs.map((graph) => graph.distances);
   const partitions = groupBySharedAncestry(unique, ancestries);
 
   const groups: LcaGroup[] = [];
@@ -235,25 +232,15 @@ export function lowestCommonAncestors(
     }
 
     const memberAncestries = members.map((m) => ancestries[unique.indexOf(m)]);
+    const memberGraphs = members.map((m) => graphs[unique.indexOf(m)]);
     let common = new Set<number>(memberAncestries[0].keys());
     for (const ancestry of memberAncestries.slice(1)) {
       common = new Set([...common].filter((index) => ancestry.has(index)));
     }
 
     const ancestors = minimalAncestors(dataset, common, maxDepth);
-    const nodes = new Set<number>(members);
-    const edgeOwners = new Map<string, Set<number>>();
-    // Tagged by each member's index in the *full* selection, not in this
-    // group — a forest still wants the same person drawn in the same colour
-    // in every one of its trees, and a group's own `members` is only ever a
-    // subset renumbered from zero.
-    for (const ancestor of ancestors) {
-      memberAncestries.forEach((ancestry, i) =>
-        pathNodes(dataset, ancestor, ancestry, nodes, edgeOwners, unique.indexOf(members[i])),
-      );
-    }
 
-    // Only an edge some member's shortest path actually walks belongs here —
+    // Only an edge some member's shortest path actually uses belongs here —
     // Mazurkiewicz advises both Rajchman and Rajchman's own student Zygmund,
     // a real relationship, but showing it would answer a question this page
     // doesn't ask. curveShortcutEdges exists on the neighbourhood/lineage
@@ -261,22 +248,67 @@ export function lowestCommonAncestors(
     // point is an honest picture of who advised whom; here the point is why
     // an ancestor is *lowest*, and a link no shortest route ever needed
     // doesn't serve that, however real it is.
+    //
+    // Found by walking down from each ancestor through that member's own
+    // complete shortest-path DAG (`memberGraphs[i].edges`, from
+    // `ancestorGraph`) rather than re-deriving hop-consistency against
+    // `dataset.students` on the fly: that graph already contains every tied
+    // edge, discovered in a single pass built on the same `advisors` index
+    // the distances themselves came from, so this walk cannot silently drop
+    // one of several equally-short parents the way re-checking against a
+    // separately stored, independently maintained index could.
+    const nodes = new Set<number>(members);
+    const edgeOwners = new Map<string, Set<number>>();
+    memberGraphs.forEach((graph, i) => {
+      const childrenOf = new Map<number, number[]>();
+      for (const [advisor, student] of graph.edges) {
+        const list = childrenOf.get(advisor);
+        if (list) list.push(student);
+        else childrenOf.set(advisor, [student]);
+      }
+
+      const member = unique.indexOf(members[i]);
+      for (const ancestor of ancestors) {
+        if (!graph.distances.has(ancestor)) continue;
+        nodes.add(ancestor);
+        const seen = new Set<number>([ancestor]);
+        let frontier = [ancestor];
+        while (frontier.length > 0) {
+          const next: number[] = [];
+          for (const parent of frontier) {
+            for (const child of childrenOf.get(parent) ?? []) {
+              nodes.add(child);
+              const key = `${parent}:${child}`;
+              let owners = edgeOwners.get(key);
+              if (!owners) {
+                owners = new Set();
+                edgeOwners.set(key, owners);
+              }
+              owners.add(member);
+              if (!seen.has(child)) {
+                seen.add(child);
+                next.push(child);
+              }
+            }
+          }
+          frontier = next;
+        }
+      }
+    });
+
     const edges: LcaEdge[] = [];
     const nodeOwnerSets = new Map<number, Set<number>>();
-    for (const index of nodes) {
-      for (const student of dataset.students(index)) {
-        if (!nodes.has(student)) continue;
-        const owners = edgeOwners.get(`${index}:${student}`);
-        if (!owners) continue;
-        edges.push({ from: index, to: student, owners: [...owners].sort((a, b) => a - b) });
-        for (const endpoint of [index, student]) {
-          let set = nodeOwnerSets.get(endpoint);
-          if (!set) {
-            set = new Set();
-            nodeOwnerSets.set(endpoint, set);
-          }
-          for (const owner of owners) set.add(owner);
+    for (const [key, owners] of edgeOwners) {
+      const [from, to] = key.split(':').map(Number);
+      const sortedOwners = [...owners].sort((a, b) => a - b);
+      edges.push({ from, to, owners: sortedOwners });
+      for (const endpoint of [from, to]) {
+        let set = nodeOwnerSets.get(endpoint);
+        if (!set) {
+          set = new Set();
+          nodeOwnerSets.set(endpoint, set);
         }
+        for (const owner of sortedOwners) set.add(owner);
       }
     }
     const nodeOwners = new Map<number, number[]>();
