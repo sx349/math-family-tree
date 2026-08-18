@@ -278,6 +278,22 @@ export function lowestCommonAncestors(
       nodeOwners.set(index, [...(nodeOwnerSets.get(index) ?? [])].sort((a, b) => a - b));
     }
 
+    // A real edge can end up walked by no member's shortest path at all —
+    // Mazurkiewicz advises both Rajchman and Rajchman's own student Zygmund,
+    // so the direct Mazurkiewicz-to-Zygmund edge is every member's shortest
+    // route and Mazurkiewicz-to-Rajchman is nobody's, even though both
+    // endpoints are themselves fully owned. Left blank, that reads as a
+    // broken link between two coloured boxes rather than the genuine "not on
+    // the shortest route" it is. Filling it from the *intersection* of its
+    // endpoints' colours draws it as whichever members the edge could
+    // plausibly be serving, without claiming a target's path runs through an
+    // edge no shortest route for that target ever needed.
+    for (const edge of edges) {
+      if (edge.owners.length > 0) continue;
+      const toOwners = new Set(nodeOwners.get(edge.to));
+      edge.owners = (nodeOwners.get(edge.from) ?? []).filter((owner) => toOwners.has(owner));
+    }
+
     // A node's height is its distance to whichever member is farthest below
     // it — the same number the recursive "max(child) + 1" walk down the
     // subgraph would produce, but read directly off the up-distances already
