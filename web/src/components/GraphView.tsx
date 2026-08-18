@@ -202,7 +202,15 @@ function orderByOwnership(cy: Core): void {
   const ownerKey = (node: cytoscape.NodeSingular): number => {
     const owners = node.data('owners') as number[] | undefined;
     if (!owners || owners.length === 0) return -1;
-    return owners.reduce((sum, value) => sum + value, 0) / owners.length;
+    // Weighted by power of two, not by the raw 0..4 index: with plain
+    // indices, a node owned solely by target 2 and one jointly owned by
+    // targets 0 and 4 both average to exactly 2, an exact tie broken only by
+    // whatever order dagre happened to leave them in — which flips from
+    // layer to layer, since that leftover order carries no relationship to
+    // either node's actual owners. Powers of two give every one of the 31
+    // possible owner subsets a distinct average (verified exhaustively, not
+    // assumed), so two differently-owned nodes are never tied here again.
+    return owners.reduce((sum, value) => sum + 2 ** value, 0) / owners.length;
   };
 
   for (const row of byRank.values()) {
