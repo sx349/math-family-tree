@@ -129,23 +129,38 @@ const WRAP_GAP = 12;
 const NODE_SEP = 14;
 
 /**
- * Reorder each rank so nodes sharing a target's path sit next to each other,
- * on the LCA page only — every other view passes nodes with no `owners`,
- * where this is a same-order no-op.
+ * Re-lay every rank as a spindle centred on one shared axis, ordering each
+ * rank's nodes so ones sharing a target's path sit next to each other. LCA
+ * page only — every other view passes nodes with no `owners`, where this
+ * exits immediately and touches nothing.
  *
- * Dagre's own crossing minimisation is purely structural: it has no notion
- * of the colour a reader is tracking, so two branches that both pass through
- * a busy generation can still be interleaved even though grouping them would
- * read far more calmly. This runs after dagre, ordering each rank by the
- * average of its nodes' owner indices — a node touched by targets 0 and 2
- * sits between the target-0 and target-2 clusters rather than wherever the
- * structural layout happened to leave it — and only repacks a rank when that
- * actually changes its order, so dagre's own parent-over-child alignment
- * survives everywhere this heuristic has nothing to add. The trade is real:
- * this can raise the literal crossing count on structural edges in exchange
- * for grouping that's easier to follow by eye.
+ * Two things dagre's own layout doesn't give us. First, its crossing
+ * minimisation is purely structural — it has no notion of the colour a
+ * reader is tracking, so two branches that both pass through a busy
+ * generation can still be interleaved even though grouping them would read
+ * far more calmly. Second, and the reason this went through two earlier,
+ * insufficient attempts: dagre leaves each rank whatever left/right position
+ * its own coordinate assignment produced, which for a rank touched by a
+ * shortcut edge's lane reservation (see curveShortcutEdges) can be
+ * substantially off-centre. Centring a repacked rank on its *own* old span
+ * just re-anchors it to that same bias; centring it on its neighbours'
+ * average still inherits the bias whenever those neighbours were themselves
+ * pushed the same direction. Only a single axis shared by every rank —
+ * including the ones with nothing to reorder, a lone root or a lone leaf
+ * among them — breaks that chain: the whole diagram narrows to a point at a
+ * single ancestor or target and widens through the busy middle, the shape a
+ * converging family tree actually has. The trade is real: this can raise the
+ * literal crossing count on structural edges, and it can pull a rank away
+ * from sitting centred under its own parent, in exchange for a shape that's
+ * far easier to follow by eye.
  */
 function orderByOwnership(cy: Core): void {
+  const hasOwnership = cy.nodes().some((node) => {
+    const owners = node.data('owners') as number[] | undefined;
+    return owners !== undefined && owners.length > 0;
+  });
+  if (!hasOwnership) return;
+
   const byRank = new Map<number, cytoscape.NodeSingular[]>();
   cy.nodes().forEach((node) => {
     const rank = Math.round(node.position('y'));
@@ -154,6 +169,11 @@ function orderByOwnership(cy: Core): void {
     else byRank.set(rank, [node]);
   });
 
+  // Fixed before any rank is touched, so later ranks aren't centred against
+  // earlier ranks' already-adjusted positions.
+  const bounds = cy.nodes().boundingBox();
+  const axis = (bounds.x1 + bounds.x2) / 2;
+
   const ownerKey = (node: cytoscape.NodeSingular): number => {
     const owners = node.data('owners') as number[] | undefined;
     if (!owners || owners.length === 0) return -1;
@@ -161,40 +181,15 @@ function orderByOwnership(cy: Core): void {
   };
 
   for (const row of byRank.values()) {
-    if (row.length < 2) continue;
-
-    const byX = [...row].sort((a, b) => a.position('x') - b.position('x'));
     const ordered = [...row].sort((a, b) => {
       const diff = ownerKey(a) - ownerKey(b);
       // Ties keep dagre's own left-to-right order — already crossing-minimised
       // for the structural edges this ordering doesn't otherwise consider.
       return diff !== 0 ? diff : a.position('x') - b.position('x');
     });
-    if (ordered.every((node, position) => node === byX[position])) continue;
 
-    // Centred on the row's own neighbours, not the row's own old span: a
-    // member displaced sideways by dagre's shortcut-edge lane reservation
-    // (see curveShortcutEdges) skews that span, and anchoring to it just
-    // relocates the whole tightened cluster to sit wherever that one
-    // outlier used to be. The connected nodes immediately above and below
-    // are what the row is actually answering to — they weren't reordered
-    // themselves, so their positions haven't inherited today's skew.
-    const neighbourXs: number[] = [];
-    row.forEach((node) => {
-      node.connectedEdges().forEach((edge) => {
-        const other = edge.source().id() === node.id() ? edge.target() : edge.source();
-        if (other.id() !== node.id()) neighbourXs.push(other.position('x'));
-      });
-    });
-    const left = Math.min(...row.map((node) => node.position('x') - node.outerWidth() / 2));
-    const right = Math.max(...row.map((node) => node.position('x') + node.outerWidth() / 2));
-    const center =
-      neighbourXs.length > 0
-        ? neighbourXs.reduce((sum, x) => sum + x, 0) / neighbourXs.length
-        : (left + right) / 2;
     const totalWidth = ordered.reduce((sum, node) => sum + node.outerWidth() + NODE_SEP, -NODE_SEP);
-
-    let cursor = center - totalWidth / 2;
+    let cursor = axis - totalWidth / 2;
     for (const node of ordered) {
       node.position('x', cursor + node.outerWidth() / 2);
       cursor += node.outerWidth() + NODE_SEP;
