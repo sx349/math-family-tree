@@ -72,6 +72,25 @@ interface GraphViewProps {
 const NODE_FONT_SIZE = 11;
 const MIN_ZOOMED_FONT_SIZE = 7;
 const MIN_LEGIBLE_ZOOM = MIN_ZOOMED_FONT_SIZE / NODE_FONT_SIZE;
+/** A name too wide for this wraps to another line rather than growing the box sideways. */
+const TEXT_MAX_WIDTH = 128;
+/**
+ * Below this, a shrunk box has stopped buying back useful width and started
+ * just being hard to read — shrinkToFitWidestRank won't go past it even if
+ * the widest generation would still need more room.
+ */
+const MIN_SHRUNK_FONT_SIZE = 8;
+/** Shared so a re-layout after shrinking matches the diagram's first pass exactly. */
+const DAGRE_LAYOUT: cytoscape.LayoutOptions = {
+  name: 'dagre',
+  rankDir: 'TB',
+  nodeSep: 14,
+  rankSep: 76,
+  ranker: 'tight-tree',
+  animate: false,
+  fit: false, // fitted once the whole post-layout pipeline has finished
+  padding: 40,
+} as cytoscape.LayoutOptions;
 
 /**
  * One muted ink per selection slot, on the LCA page only — every other view
@@ -201,6 +220,89 @@ function orderByOwnership(cy: Core): void {
       cursor += node.outerWidth() + NODE_SEP;
     }
   }
+}
+
+/**
+ * Shrinks the whole diagram's font and text-wrap width together, just
+ * enough that its widest generation fits the plate on one line — on the LCA
+ * page only, the same `hasOwnership` gate as orderByOwnership, since every
+ * other view keeps a fixed box size.
+ *
+ * wrapWideRanks (below) already handles "a generation is too wide for the
+ * plate," by stacking the overflow into extra rows. But stacking scatters a
+ * generation's members across more than one visual row, so every edge into
+ * or out of it now has to find whichever sub-row its endpoint landed in —
+ * trading one wide row for crossing wires, which reads worse for a modest
+ * overflow than the wide row itself did. Shrinking first raises the bar
+ * wrapping needs to clear: most real overflows turn out to be a few boxes
+ * too many for *this* font size, not too many for any font size, and those
+ * settle back onto a single row instead of ever needing to stack. A floor
+ * stops the shrink at the point a name stops reading as text; whatever's
+ * still too wide past that floor falls through to wrapWideRanks exactly as
+ * it always has.
+ */
+function shrinkToFitWidestRank(cy: Core, maxRowWidth: number): void {
+  const hasOwnership = cy.nodes().some((node) => {
+    const owners = node.data('owners') as number[] | undefined;
+    return owners !== undefined && owners.length > 0;
+  });
+  if (!hasOwnership) return;
+
+  const packedWidthOf = (row: cytoscape.NodeSingular[]) =>
+    row.reduce((sum, node) => sum + node.outerWidth() + WRAP_GAP, -WRAP_GAP);
+
+  const byRank = new Map<number, cytoscape.NodeSingular[]>();
+  cy.nodes().forEach((node) => {
+    const rank = Math.round(node.position('y'));
+    const bucket = byRank.get(rank);
+    if (bucket) bucket.push(node);
+    else byRank.set(rank, [node]);
+  });
+
+  let widestRow: cytoscape.NodeSingular[] | null = null;
+  let widestPacked = 0;
+  for (const row of byRank.values()) {
+    const packed = packedWidthOf(row);
+    if (packed > widestPacked) {
+      widestPacked = packed;
+      widestRow = row;
+    }
+  }
+  if (!widestRow || widestPacked <= maxRowWidth) return;
+
+  // Box width doesn't scale linearly with font size — padding and border are
+  // fixed pixels that stay put while the text shrinks — so a ratio computed
+  // from the unshrunk width (maxRowWidth / widestPacked) always ends up too
+  // generous, still too wide once applied. Binary-searching the real,
+  // measured width at each candidate size sidesteps needing that relationship
+  // right at all.
+  const fits = (ratio: number): boolean => {
+    cy.style()
+      .selector('node')
+      .style({
+        'font-size': NODE_FONT_SIZE * ratio,
+        'text-max-width': `${Math.round(TEXT_MAX_WIDTH * ratio)}px`,
+      })
+      .update();
+    return packedWidthOf(widestRow!) <= maxRowWidth;
+  };
+
+  const floor = MIN_SHRUNK_FONT_SIZE / NODE_FONT_SIZE;
+  if (!fits(floor)) return; // Even the floor doesn't fit — wrapWideRanks takes it from here.
+
+  let lo = floor;
+  let hi = 1;
+  for (let i = 0; i < 10; i++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) lo = mid;
+    else hi = mid;
+  }
+  fits(lo); // Leave the style at the last size confirmed to fit.
+
+  // Node sizes only take effect once cytoscape recomputes label boxes from
+  // the style update above, so dagre needs to run again against the new
+  // sizes — every position from the first pass is stale after this.
+  cy.layout(DAGRE_LAYOUT).run();
 }
 
 /**
@@ -500,7 +602,7 @@ export function GraphView({
             // box downward instead of losing its end, which matters most for
             // exactly the long, multi-part names this dataset has plenty of.
             'text-wrap': 'wrap',
-            'text-max-width': '128px',
+            'text-max-width': `${TEXT_MAX_WIDTH}px`,
             // Below ~7px on screen a name is grey noise that obscures the shape
             // of the graph. Cytoscape drops the text entirely at that point, so
             // a dense view reads as clean boxes and names return on zoom in.
@@ -561,20 +663,24 @@ export function GraphView({
           style: { 'border-color': palette.oxblood, 'border-width': 2.4 },
         },
       ],
-      layout: {
-        name: 'dagre',
-        rankDir: 'TB',
-        nodeSep: 14,
-        rankSep: 76,
-        ranker: 'tight-tree',
-        animate: false,
-        fit: false, // fitted below, after the wrap pass has moved things
-        padding: 40,
-      } as cytoscape.LayoutOptions,
+      layout: DAGRE_LAYOUT,
       wheelSensitivity: 0.2,
       maxZoom: 3,
       minZoom: 0.03,
     });
+
+    // Wrap/shrink to roughly the container's own width so the result fits at
+    // close to 1:1 zoom — wrapping to something wider only trades a strip
+    // for a smaller strip once the fit scales it back down. The old floor of
+    // 640px was wider than a phone, so on a 390px screen every diagram was
+    // built 250px too wide and then clipped on both sides.
+    const viewportWidth = cy.width() || 900;
+    const maxRowWidth = Math.min(Math.max(viewportWidth - 40, 300), 1400);
+
+    // Tried before wrapping into sub-rows: most real overflows are a few
+    // boxes too many for this font size, not too many for any font size, and
+    // read far better shrunk onto one row than split across two.
+    shrinkToFitWidestRank(cy, maxRowWidth);
 
     // Both passes work rank by rank against dagre's raw y-coordinates, so
     // ownership reordering runs first — wrapping then re-derives its own
@@ -583,14 +689,7 @@ export function GraphView({
     orderByOwnership(cy);
     curveShortcutEdges(cy);
 
-    // Wrap to roughly the container's own width so the result fits at close to
-    // 1:1 zoom — wrapping to something wider only trades a strip for a smaller
-    // strip once the fit scales it back down.
-    const viewportWidth = cy.width() || 900;
-    // Wrap to the plate's own width, whatever that is. The old floor of 640px
-    // was wider than a phone, so on a 390px screen every diagram was built
-    // 250px too wide and then clipped on both sides.
-    wrapWideRanks(cy, Math.min(Math.max(viewportWidth - 40, 300), 1400));
+    wrapWideRanks(cy, maxRowWidth);
 
     // Give the plate the height this particular diagram needs, before fitting
     // into it. Height is the only dimension free to move — width belongs to
