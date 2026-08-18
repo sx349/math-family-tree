@@ -131,14 +131,6 @@ const PLATE_MAX_HEIGHT = 3600;
 const SUBROW_GAP = 8;
 /** Horizontal gap between neighbouring nodes in a wrapped generation. */
 const WRAP_GAP = 12;
-/**
- * However narrow the boxes, a row this wide is still a lot to scan left to
- * right in one go — a generation of short names can pack many more than a
- * pixel-width budget alone would ever wrap. Counted independently of that
- * budget, so a rank narrow enough to fit under it on width can still wrap on
- * count alone.
- */
-const MAX_ROW_NODES = 7;
 /** Matches the dagre layout's own `nodeSep`, so a reordered rank keeps the same spacing dagre used. */
 const NODE_SEP = 14;
 
@@ -240,16 +232,9 @@ function wrapWideRanks(cy: Core, maxRowWidth: number): void {
   const packedWidthOf = (row: cytoscape.NodeSingular[]) =>
     row.reduce((sum, node) => sum + node.outerWidth() + WRAP_GAP, -WRAP_GAP);
 
-  // If every generation already fits, on both width and count, dagre's
-  // layout is left exactly as it is — its alignment of parents over their
-  // children is worth keeping.
-  if (
-    ranks.every(
-      (rank) =>
-        packedWidthOf(byRank.get(rank)!) <= maxRowWidth && byRank.get(rank)!.length <= MAX_ROW_NODES,
-    )
-  )
-    return;
+  // If every generation already fits, dagre's layout is left exactly as it is —
+  // its alignment of parents over their children is worth keeping.
+  if (ranks.every((rank) => packedWidthOf(byRank.get(rank)!) <= maxRowWidth)) return;
 
   // Otherwise at least one generation must be wrapped, which invalidates the
   // global x-alignment dagre computed anyway. So every generation is repacked
@@ -266,13 +251,7 @@ function wrapWideRanks(cy: Core, maxRowWidth: number): void {
     const packedWidth = packedWidthOf(row);
 
     // Even sub-rows read better than a full one plus a short remainder.
-    // Width and count are independent budgets — a rank of many short names
-    // can need more sub-rows than its pixel width alone would ever demand.
-    const subrowCount = Math.max(
-      1,
-      Math.ceil(packedWidth / maxRowWidth),
-      Math.ceil(row.length / MAX_ROW_NODES),
-    );
+    const subrowCount = Math.max(1, Math.ceil(packedWidth / maxRowWidth));
     const targetWidth = packedWidth / subrowCount;
 
     // A row's width counts the gaps *between* its nodes, so the running total
@@ -286,7 +265,7 @@ function wrapWideRanks(cy: Core, maxRowWidth: number): void {
     row.forEach((node, position) => {
       const width = widths[position];
       const extended = current.length === 0 ? width : currentWidth + WRAP_GAP + width;
-      if (current.length > 0 && (extended > targetWidth || current.length >= MAX_ROW_NODES)) {
+      if (current.length > 0 && extended > targetWidth) {
         subrows.push(current);
         current = [node];
         currentWidth = width;
