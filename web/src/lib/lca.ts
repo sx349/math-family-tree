@@ -30,15 +30,17 @@ export interface LcaEdge {
   from: number;
   to: number;
   /**
-   * Which selected person's shortest path to an ancestor actually runs
-   * through this edge, as an index into the full up-to-`MAX_TARGETS`
-   * selection passed to `lowestCommonAncestors` — not into this group's own
+   * Which selected people genuinely descend from `to` — i.e. have it in
+   * their own up-distance map — as indices into the full up-to-`MAX_TARGETS`
+   * selection passed to `lowestCommonAncestors`, not into this group's own
    * `targets`, which is only ever a subset renumbered from zero. Keeping the
    * index global means the same person gets the same index in every group of
-   * a forest. Empty when the edge merely connects two admitted nodes without
-   * lying on any tracked path — real structure worth drawing, but not part
-   * of the answer to "how does X connect to the ancestor" for any particular
-   * X.
+   * a forest.
+   *
+   * This edge is always on *some* member's own shortest path — that's how it
+   * entered the diagram — but `owners` isn't limited to that member: anyone
+   * else who reaches `to` by a separate route of their own, tied at the same
+   * distance, is credited too, so never empty.
    */
   owners: number[];
 }
